@@ -36,12 +36,6 @@ public class CommandFlags {
             "--task_timeout", new TimeoutFlag()
     ));
 
-    /**
-     * Takes a type and value and converts it into a matching {@link CommandFlag}
-     * @param type The type of flag to get, formatted as "--type"
-     * @param value The value of the flag to get, format depends on the type provided
-     * @return the matching {@link CommandFlag} or null if one could not be found
-     */
     public static @Nullable CommandFlag<?> getFlag(@Nonnull String type, @Nonnull String value) {
         CommandFlag<?> flag = FLAG_TYPES.get(type);
         if (flag != null) {
@@ -50,16 +44,11 @@ public class CommandFlags {
         return null;
     }
 
-    /**
-     * Translates the provided args into {@link CommandFlag CommandFlags}
-     * @param args The args to convert, formatted as: {"--energy", "true", "--task_timeout", "10s"}
-     * @return The command flags from the given arguments, empty if arguments are invalid
-     */
     public static @Nonnull List<CommandFlag<?>> getFlags(@Nonnull List<String> args) {
         List<CommandFlag<?>> flags = new ArrayList<>();
         for (int i = 0; i < args.size(); i++) {
             String arg = args.get(i);
-            if (FLAG_TYPES.containsKey(arg)) {
+            if (FLAG_TYPES.containsKey(arg) && i + 1 < args.size()) {
                 CommandFlag<?> flag = CommandFlags.getFlag(arg, args.get(i + 1));
                 if (flag != null) {
                     flags.add(flag);
@@ -69,12 +58,6 @@ public class CommandFlags {
         return flags;
     }
 
-    /**
-     * Attempts to register the flag type, fails if there is already a flag for the given flag type
-     * @param type A {@link String} flag type in the format of "--type"
-     * @param flag The {@link CommandFlag} for the given flag type
-     * @return If the flag type was successfully registered
-     */
     public static boolean addFlagType(@Nonnull String type, @Nonnull CommandFlag<?> flag) {
         if (FLAG_TYPES.containsKey(type)) {
             return false;
@@ -83,9 +66,6 @@ public class CommandFlags {
         return true;
     }
 
-    /**
-     * @return An unmodifiable copy of {@link CommandFlags#FLAG_TYPES}
-     */
     public static @Nonnull Map<String, CommandFlag<?>> getFlagTypes() {
         return Map.copyOf(FLAG_TYPES);
     }
@@ -117,6 +97,9 @@ public class CommandFlags {
         @Override
         public void apply(Player player, List<CommandFlag<?>> flags, SlimefunItem sfItem, Block block) {
             BlockMenu menu = BlockStorage.getInventory(block);
+            if (menu == null) {
+                return;
+            }
             int[] slots = menu.getPreset().getSlotsAccessedByItemTransport(ItemTransportFlow.INSERT);
             for (ItemStack input : this.value) {
                 if (menu.pushItem(new ItemStack(input), slots) != null) {
@@ -167,10 +150,9 @@ public class CommandFlags {
                     }
                 }
 
-                World world = context.getPlayer().getWorld();
                 for (Material material : Utils.MATERIALS.values()) {
                     String name = material.name();
-                    if (material.isEnabledByFeature(world) && name.startsWith(current)) {
+                    if (name.startsWith(current)) {
                         inputs.add(base + name);
                     }
                 }
@@ -179,22 +161,24 @@ public class CommandFlags {
             return inputs;
         }
 
-        private Collection<String> generateBaseInputs(String input, World world) {
+        private Collection<String> generateBaseInputs(String input, World ignoredWorld) {
             List<String> inputs = new ArrayList<>();
             for (String slimefunItem : Utils.SLIMEFUN_ITEMS) {
                 inputs.add(input + slimefunItem + ",");
             }
 
             for (Material material : Utils.MATERIALS.values()) {
-                if (material.isEnabledByFeature(world)) {
-                    inputs.add(input + material.name() + ",");
-                }
+                inputs.add(input + material.name() + ",");
             }
             return inputs;
         }
 
         @Override
         public InputsFlag ofValue(String value) {
+            if (value.length() < 2 || value.charAt(0) != '[' || value.charAt(value.length() - 1) != ']') {
+                return (InputsFlag) new InputsFlag().setValue(List.of());
+            }
+
             String[] segments = value.substring(1, value.length() - 1).split(",");
             List<ItemStack> inputs = new ArrayList<>();
             for (String input : segments) {
@@ -287,7 +271,6 @@ public class CommandFlags {
 
         @Override
         public void apply(Player player, List<CommandFlag<?>> flags, SlimefunItem sfItem, Block block) {
-
         }
 
         @Override
@@ -302,14 +285,24 @@ public class CommandFlags {
 
         @Override
         public TimeoutFlag ofValue(String value) {
-            int multiplier = switch(value.charAt(value.length() -1)) {
+            if (value == null || value.length() < 2) {
+                return (TimeoutFlag) new TimeoutFlag().setValue(0);
+            }
+
+            int multiplier = switch(value.charAt(value.length() - 1)) {
                 case 's' -> 20;
                 case 'm' -> 20 * 60;
                 case 'h' -> 20 * 60 * 60;
                 default -> 0;
             };
 
-            return (TimeoutFlag) new TimeoutFlag().setValue(multiplier * Integer.parseInt(value.substring(0, value.length() - 1)));
+            int numeric;
+            try {
+                numeric = Integer.parseInt(value.substring(0, value.length() - 1));
+            } catch (NumberFormatException ignored) {
+                numeric = 0;
+            }
+            return (TimeoutFlag) new TimeoutFlag().setValue(multiplier * numeric);
         }
     }
 }

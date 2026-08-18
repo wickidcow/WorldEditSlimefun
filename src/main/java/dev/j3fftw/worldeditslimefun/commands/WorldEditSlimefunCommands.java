@@ -15,12 +15,13 @@ import dev.j3fftw.worldeditslimefun.WorldEditSlimefun;
 import dev.j3fftw.worldeditslimefun.commands.flags.CommandFlag;
 import dev.j3fftw.worldeditslimefun.commands.flags.CommandFlags;
 import dev.j3fftw.worldeditslimefun.utils.PositionManager;
+import dev.j3fftw.worldeditslimefun.utils.SelectionResolver;
+import dev.j3fftw.worldeditslimefun.utils.SelectionResolver.Selection;
 import dev.j3fftw.worldeditslimefun.utils.Utils;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem;
 import io.github.thebusybiscuit.slimefun4.core.handlers.BlockBreakHandler;
 import io.github.thebusybiscuit.slimefun4.core.handlers.BlockPlaceHandler;
 import io.github.thebusybiscuit.slimefun4.implementation.items.blocks.UnplaceableBlock;
-import io.github.thebusybiscuit.slimefun4.libraries.dough.blocks.BlockPosition;
 import me.mrCookieSlime.Slimefun.api.BlockStorage;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -37,7 +38,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 
-@SuppressWarnings("unused")
+@SuppressWarnings({"unused", "deprecation"})
 @CommandAlias("wesf|sfedit")
 @CommandPermission("wesf.admin")
 public class WorldEditSlimefunCommands extends BaseCommand {
@@ -57,7 +58,7 @@ public class WorldEditSlimefunCommands extends BaseCommand {
                 return availableFlags;
             }
 
-            String currentArg = args.remove(args.size() - 1);
+            args.remove(args.size() - 1);
             if (args.isEmpty()) {
                 return availableFlags;
             }
@@ -80,13 +81,13 @@ public class WorldEditSlimefunCommands extends BaseCommand {
     @Default
     public void onDefault(Player player) {
         player.sendMessage(ChatColor.RED + "Please provide a valid subcommand.");
+        player.sendMessage(ChatColor.GRAY + "Use your WorldEdit/FAWE selection for paste, clear, audit and recover.");
     }
 
     @Subcommand("wand")
     public void onWand(Player player) {
         ItemStack wand = SlimefunItem.getOptionalById("WESF_WAND").map(SlimefunItem::getItem).orElse(null);
 
-        // This should never be reached
         if (wand == null) {
             player.sendMessage(ChatColor.RED + "Wand not found!");
             return;
@@ -108,10 +109,8 @@ public class WorldEditSlimefunCommands extends BaseCommand {
     @Subcommand("paste")
     @CommandCompletion("@slimefun_blocks @command_flags")
     public void paste(Player player, @Default("INVALID") String sfId, String[] commandFlags) {
-        BlockPosition pos1 = PositionManager.getPositionOne(player);
-        BlockPosition pos2 = PositionManager.getPositionTwo(player);
-        if (pos1 == null || pos2 == null) {
-            player.sendMessage(ChatColor.RED + "Select two positions first!");
+        Selection selection = requireSelection(player);
+        if (selection == null || !isSelectionAllowed(player, selection)) {
             return;
         }
 
@@ -126,16 +125,22 @@ public class WorldEditSlimefunCommands extends BaseCommand {
 
         ItemStack item = sfItem.getItem();
         long start = System.currentTimeMillis();
-        int amountOfBlocks = loopThroughSelection(pos1, pos2, block -> {
+        long amountOfBlocks = loopThroughSelection(selection, block -> {
             if (BlockStorage.hasBlockInfo(block)) {
                 BlockStorage.deleteLocationInfoUnsafely(block.getLocation(), true);
             }
 
-            block.setType(item.getType());
+            block.setType(item.getType(), false);
             BlockStorage.store(block, sfId);
             sfItem.callItemHandler(BlockPlaceHandler.class, handler -> {
-                BlockPlaceEvent event = new BlockPlaceEvent(block, block.getState(),
-                        block.getRelative(BlockFace.DOWN), item, player, true, EquipmentSlot.HAND);
+                BlockPlaceEvent event = new BlockPlaceEvent(
+                        block,
+                        block.getState(),
+                        block.getRelative(BlockFace.DOWN),
+                        item,
+                        player,
+                        true,
+                        EquipmentSlot.HAND);
                 handler.onPlayerPlace(event);
             });
 
@@ -145,29 +150,30 @@ public class WorldEditSlimefunCommands extends BaseCommand {
         });
         long time = System.currentTimeMillis() - start;
 
-        player.sendMessage("Pasted " + amountOfBlocks + " " + sfItem.getItemName() + ChatColor.WHITE + " (s)");
+        player.sendMessage("Pasted " + amountOfBlocks + " " + sfItem.getItemName() + ChatColor.WHITE + " block(s)");
         player.sendMessage("Took " + time + "ms to paste!");
     }
 
     @Subcommand("clear")
     @CommandCompletion("true|false")
     public void clear(Player player, @Default("false") boolean callEvent) {
-        BlockPosition pos1 = PositionManager.getPositionOne(player);
-        BlockPosition pos2 = PositionManager.getPositionTwo(player);
-        if (pos1 == null || pos2 == null) {
+        Selection selection = requireSelection(player);
+        if (selection == null || !isSelectionAllowed(player, selection)) {
             return;
         }
 
         long start = System.currentTimeMillis();
-        int amountOfBlocks = loopThroughSelection(pos1, pos2,  block -> {
+        long amountOfBlocks = loopThroughSelection(selection, block -> {
             if (callEvent && BlockStorage.hasBlockInfo(block)) {
                 SlimefunItem sfItem = BlockStorage.check(block);
-                sfItem.callItemHandler(BlockBreakHandler.class, handler -> {
-                    BlockBreakEvent event = new BlockBreakEvent(block, player);
-                    handler.onPlayerBreak(event, new ItemStack(Material.AIR), new ArrayList<>());
-                });
+                if (sfItem != null) {
+                    sfItem.callItemHandler(BlockBreakHandler.class, handler -> {
+                        BlockBreakEvent event = new BlockBreakEvent(block, player);
+                        handler.onPlayerBreak(event, new ItemStack(Material.AIR), new ArrayList<>());
+                    });
+                }
             }
-            block.setType(Material.AIR);
+            block.setType(Material.AIR, false);
             BlockStorage.deleteLocationInfoUnsafely(block.getLocation(), true);
         });
         long time = System.currentTimeMillis() - start;
@@ -177,23 +183,138 @@ public class WorldEditSlimefunCommands extends BaseCommand {
     }
 
     /**
-     * @param pos1 The first corner of the selection
-     * @param pos2 The second corner of the selection
-     * @param blockRunnable What should happen to every block
-     * @return The amount of blocks acted upon
+     * Audits the active WorldEdit/FAWE selection for surviving Slimefun storage records.
+     * This is useful before attempting recovery of an area previously cleared by WorldEdit/FAWE.
      */
-    private int loopThroughSelection(BlockPosition pos1, BlockPosition pos2, Consumer<Block> blockRunnable) {
-        int amountOfBlocks = 0;
-        int upperX = Math.max(pos1.getX(), pos2.getX());
-        int upperY = Math.max(pos1.getY(), pos2.getY());
-        int upperZ = Math.max(pos1.getZ(), pos2.getZ());
-        int lowerX = Math.min(pos1.getX(), pos2.getX());
-        int lowerY = Math.min(pos1.getY(), pos2.getY());
-        int lowerZ = Math.min(pos1.getZ(), pos2.getZ());
-        for (int x = lowerX; x <= upperX; x++) {
-            for (int z = lowerZ; z <= upperZ; z++) {
-                for (int y = lowerY; y <= upperY; y++) {
-                    blockRunnable.accept(pos1.getWorld().getBlockAt(x, y, z));
+    @Subcommand("audit")
+    public void audit(Player player) {
+        Selection selection = requireSelection(player);
+        if (selection == null || !isSelectionAllowed(player, selection)) {
+            return;
+        }
+
+        long start = System.currentTimeMillis();
+        long[] counts = new long[4];
+        loopThroughSelection(selection, block -> {
+            String sfId = BlockStorage.checkID(block.getLocation());
+            if (sfId == null) {
+                return;
+            }
+
+            counts[0]++;
+            SlimefunItem sfItem = SlimefunItem.getById(sfId);
+            if (sfItem == null) {
+                counts[3]++;
+                return;
+            }
+
+            Material expected = sfItem.getItem().getType();
+            if (block.getType().isAir()) {
+                counts[1]++;
+            } else if (block.getType() != expected) {
+                counts[2]++;
+            }
+        });
+
+        player.sendMessage(ChatColor.GOLD + "Slimefun recovery audit:");
+        player.sendMessage(ChatColor.GRAY + "Stored records: " + ChatColor.WHITE + counts[0]);
+        player.sendMessage(ChatColor.GRAY + "Records currently in air: " + ChatColor.WHITE + counts[1]);
+        player.sendMessage(ChatColor.GRAY + "Material mismatches: " + ChatColor.WHITE + counts[2]);
+        player.sendMessage(ChatColor.GRAY + "Unknown Slimefun IDs: " + ChatColor.WHITE + counts[3]);
+        player.sendMessage(ChatColor.GRAY + "Scan time: " + ChatColor.WHITE + (System.currentTimeMillis() - start) + "ms");
+    }
+
+    /**
+     * Recreates the vanilla block material for surviving Slimefun records in air.
+     * Existing Slimefun storage is intentionally preserved; this command does not invent
+     * missing IDs or overwrite saved inventories/data.
+     *
+     * @param force when true, also replaces non-air material mismatches
+     */
+    @Subcommand("recover")
+    @CommandCompletion("false|true")
+    public void recover(Player player, @Default("false") boolean force) {
+        Selection selection = requireSelection(player);
+        if (selection == null || !isSelectionAllowed(player, selection)) {
+            return;
+        }
+
+        long start = System.currentTimeMillis();
+        long[] counts = new long[4];
+        loopThroughSelection(selection, block -> {
+            String sfId = BlockStorage.checkID(block.getLocation());
+            if (sfId == null) {
+                return;
+            }
+
+            SlimefunItem sfItem = SlimefunItem.getById(sfId);
+            if (sfItem == null || sfItem instanceof UnplaceableBlock) {
+                counts[2]++;
+                return;
+            }
+
+            Material expected = sfItem.getItem().getType();
+            if (!expected.isBlock()) {
+                counts[2]++;
+                return;
+            }
+
+            if (block.getType() == expected) {
+                counts[1]++;
+                return;
+            }
+
+            if (block.getType().isAir() || force) {
+                block.setType(expected, false);
+                counts[0]++;
+            } else {
+                counts[3]++;
+            }
+        });
+
+        player.sendMessage(ChatColor.GREEN + "Slimefun recovery complete.");
+        player.sendMessage(ChatColor.GRAY + "Restored physical Slimefun blocks: " + ChatColor.WHITE + counts[0]);
+        player.sendMessage(ChatColor.GRAY + "Already matched: " + ChatColor.WHITE + counts[1]);
+        player.sendMessage(ChatColor.GRAY + "Unknown/unrecoverable IDs: " + ChatColor.WHITE + counts[2]);
+        player.sendMessage(ChatColor.GRAY + "Skipped non-air mismatches: " + ChatColor.WHITE + counts[3]);
+        player.sendMessage(ChatColor.GRAY + "Recovery time: " + ChatColor.WHITE + (System.currentTimeMillis() - start) + "ms");
+
+        if (counts[0] > 0) {
+            player.sendMessage(ChatColor.YELLOW + "A normal server restart is recommended after recovery so Slimefun reloads tickers and menus cleanly.");
+        }
+    }
+
+    private Selection requireSelection(Player player) {
+        Selection selection = SelectionResolver.resolve(player);
+        if (selection == null) {
+            player.sendMessage(ChatColor.RED + "Select a region with WorldEdit/FAWE first (//pos1 and //pos2).");
+            return null;
+        }
+        return selection;
+    }
+
+    private boolean isSelectionAllowed(Player player, Selection selection) {
+        long maximum = WorldEditSlimefun.getInstance().getConfig().getLong("max-selection-blocks", 2_000_000L);
+        if (maximum > 0 && selection.volume() > maximum) {
+            player.sendMessage(ChatColor.RED + "Selection is too large for a synchronous Slimefun operation: "
+                    + selection.volume() + " blocks (limit " + maximum + ").");
+            player.sendMessage(ChatColor.GRAY + "Raise max-selection-blocks in plugins/WorldEditSlimefun/config.yml if needed.");
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * @param selection selection to iterate
+     * @param blockRunnable operation to perform for every block
+     * @return amount of blocks visited
+     */
+    private long loopThroughSelection(Selection selection, Consumer<Block> blockRunnable) {
+        long amountOfBlocks = 0;
+        for (int x = selection.minX(); x <= selection.maxX(); x++) {
+            for (int z = selection.minZ(); z <= selection.maxZ(); z++) {
+                for (int y = selection.minY(); y <= selection.maxY(); y++) {
+                    blockRunnable.accept(selection.world().getBlockAt(x, y, z));
                     amountOfBlocks++;
                 }
             }

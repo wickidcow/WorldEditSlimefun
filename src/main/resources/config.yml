@@ -1,1 +1,3 @@
-auto-update: true
+# Maximum number of blocks WorldEditSlimefun will scan or edit synchronously.
+# Set to 0 to disable the limit. Raise carefully for very large recovery jobs.
+max-selection-blocks: 2000000

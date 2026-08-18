@@ -1,10 +1,13 @@
 name: WorldEditSlimefun
 version: '${project.version}'
 main: dev.j3fftw.worldeditslimefun.WorldEditSlimefun
-api-version: 1.19
+api-version: '26.2'
 authors: [J3fftw1]
+contributors: [wickidcow]
+website: https://github.com/wickidcow/WorldEditSlimefun
 depend:
   - Slimefun
+  - WorldEdit
 
 permissions:
   wesf.*:
@@ -12,3 +15,6 @@ permissions:
     default: op
     children:
       wesf.admin: true
+  wesf.admin:
+    description: Allows WorldEditSlimefun editing, audit and recovery commands
+    default: op

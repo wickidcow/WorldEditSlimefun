@@ -2,17 +2,15 @@ package dev.j3fftw.worldeditslimefun;
 
 import dev.j3fftw.worldeditslimefun.commands.WorldEditSlimefunCommands;
 import dev.j3fftw.worldeditslimefun.listeners.RegistryListener;
-import dev.j3fftw.worldeditslimefun.slimefun.Items;
 import dev.j3fftw.worldeditslimefun.listeners.WandListener;
+import dev.j3fftw.worldeditslimefun.slimefun.Items;
 import io.github.thebusybiscuit.slimefun4.api.SlimefunAddon;
-import io.github.thebusybiscuit.slimefun4.libraries.dough.updater.BlobBuildUpdater;
 import org.bstats.bukkit.Metrics;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import javax.annotation.Nonnull;
-import java.io.File;
 
 public final class WorldEditSlimefun extends JavaPlugin implements SlimefunAddon {
 
@@ -21,14 +19,7 @@ public final class WorldEditSlimefun extends JavaPlugin implements SlimefunAddon
     @Override
     public void onEnable() {
         instance = this;
-
-        if (!new File(getDataFolder(), "config.yml").exists()) {
-            saveDefaultConfig();
-        }
-
-        if (getConfig().getBoolean("auto-update", true) && getDescription().getVersion().startsWith("DEV - ")) {
-            new BlobBuildUpdater(this, getFile(), "WorldEditSlimefun", "Dev").start();
-        }
+        saveDefaultConfig();
 
         new Metrics(this, 20799);
 
@@ -38,10 +29,14 @@ public final class WorldEditSlimefun extends JavaPlugin implements SlimefunAddon
         PluginManager manager = Bukkit.getPluginManager();
         manager.registerEvents(new WandListener(), this);
         manager.registerEvents(new RegistryListener(), this);
+
+        getLogger().info("WorldEditSlimefun enabled with WorldEdit/FAWE selection support.");
     }
 
     @Override
-    public void onDisable() {}
+    public void onDisable() {
+        instance = null;
+    }
 
     @Nonnull
     @Override
@@ -52,7 +47,7 @@ public final class WorldEditSlimefun extends JavaPlugin implements SlimefunAddon
     @Nonnull
     @Override
     public String getBugTrackerURL() {
-        return "https://github.com/Slimefun-Addon-Community/WorldEditSlimefun/issues";
+        return "https://github.com/wickidcow/WorldEditSlimefun/issues";
     }
 
     public static WorldEditSlimefun getInstance() {
