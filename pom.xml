@@ -6,7 +6,7 @@
 
     <groupId>dev.j3fftw</groupId>
     <artifactId>WorldEditSlimefun</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <packaging>jar</packaging>
 
     <name>WorldEditSlimefun</name>
@@ -16,12 +16,12 @@
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <paper.version>[26.2.build,)</paper.version>
-        <fawe.bom.version>1.56</fawe.bom.version>
+        <worldedit.version>7.3.6</worldedit.version>
     </properties>
 
     <build>
         <defaultGoal>clean package</defaultGoal>
-        <finalName>SF_WorldEditSlimefun${project.version}</finalName>
+        <finalName>SF_SFLWorldEdit_1.0.1</finalName>
         <sourceDirectory>${basedir}/src/main/java</sourceDirectory>
 
         <plugins>
@@ -97,18 +97,6 @@
         </repository>
     </repositories>
 
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>com.intellectualsites.bom</groupId>
-                <artifactId>bom-newest</artifactId>
-                <version>${fawe.bom.version}</version>
-                <scope>import</scope>
-                <type>pom</type>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
-
     <dependencies>
         <dependency>
             <groupId>io.papermc.paper</groupId>
@@ -117,20 +105,10 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>com.fastasyncworldedit</groupId>
-            <artifactId>FastAsyncWorldEdit-Core</artifactId>
+            <groupId>com.sk89q.worldedit</groupId>
+            <artifactId>worldedit-bukkit</artifactId>
+            <version>${worldedit.version}</version>
             <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.fastasyncworldedit</groupId>
-            <artifactId>FastAsyncWorldEdit-Bukkit</artifactId>
-            <scope>provided</scope>
-            <exclusions>
-                <exclusion>
-                    <groupId>*</groupId>
-                    <artifactId>FastAsyncWorldEdit-Core</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
             <groupId>com.github.Slimefun</groupId>
