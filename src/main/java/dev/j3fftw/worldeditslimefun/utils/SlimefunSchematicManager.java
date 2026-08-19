@@ -65,11 +65,10 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Slimefun-aware schematic support.
+ * Slimefun-aware Sponge schematic support.
  *
- * <p>The normal Sponge schematic stores the physical structure, block-entity NBT/PDC and entities. A companion
- * <code>.wesf.yml</code> sidecar stores the Slimefun data that normally lives outside the world in Slimefun's
- * block database. This lets an administrative restore rebuild machines instead of leaving decorative shells.</p>
+ * <p>The .schem stores the physical WorldEdit/FAWE clipboard. A companion .wesf.yml stores the Slimefun
+ * records and non-preset menu contents which normally live outside Minecraft's block NBT.</p>
  */
 @SuppressWarnings({"deprecation", "unchecked"})
 public final class SlimefunSchematicManager {
@@ -83,64 +82,59 @@ public final class SlimefunSchematicManager {
         WorldEdit worldEdit = WorldEdit.getInstance();
         Actor actor = BukkitAdapter.adapt(player);
         LocalSession session = worldEdit.getSessionManager().get(actor);
-        com.sk89q.worldedit.world.World world = BukkitAdapter.adapt(player.getWorld());
+        com.sk89q.worldedit.world.World weWorld = BukkitAdapter.adapt(player.getWorld());
 
         final Region region;
         try {
-            region = session.getSelection(world);
+            region = session.getSelection(weWorld);
         } catch (IncompleteRegionException ex) {
             player.sendMessage(ChatColor.RED + "Select the backup area with WorldEdit/FAWE first.");
             return;
         }
 
-        long maximum = WorldEditSlimefun.getInstance().getConfig().getLong("max-selection-blocks", 2_000_000L);
-        if (maximum > 0 && region.getVolume() > maximum) {
-            player.sendMessage(ChatColor.RED + "Selection is too large: " + region.getVolume() + " blocks (limit " + maximum + ").");
+        if (!withinLimit(player, region.getVolume())) {
             return;
         }
 
         try {
-            File schematicFile = resolveSchematicFile(actor, name, true);
-            File sidecarFile = sidecarFor(schematicFile);
-            if (!overwrite && (schematicFile.exists() || sidecarFile.exists())) {
+            File schematic = resolveSchematicFile(actor, name, true);
+            File sidecar = sidecarFor(schematic);
+            if (!overwrite && (schematic.exists() || sidecar.exists())) {
                 player.sendMessage(ChatColor.RED + "That schematic already exists.");
                 player.sendMessage(ChatColor.GRAY + "Use /wesf schem save " + name + " true to overwrite it.");
                 return;
             }
 
-            File parent = schematicFile.getParentFile();
+            File parent = schematic.getParentFile();
             if (parent != null && !parent.exists() && !parent.mkdirs()) {
                 throw new IOException("Unable to create schematic directory: " + parent);
             }
 
             BlockArrayClipboard clipboard = new BlockArrayClipboard(region);
             clipboard.setOrigin(session.getPlacementPosition(actor));
-
-            try (EditSession source = worldEdit.newEditSession(world)) {
+            try (EditSession source = worldEdit.newEditSession(weWorld)) {
                 ForwardExtentCopy copy = new ForwardExtentCopy(source, region, clipboard, region.getMinimumPoint());
                 copy.setCopyingEntities(true);
                 Operations.completeLegacy(copy);
             }
 
-            try (BufferedOutputStream output = new BufferedOutputStream(new FileOutputStream(schematicFile));
-                 ClipboardWriter writer = BuiltInClipboardFormat.SPONGE_V3_SCHEMATIC.getWriter(output)) {
+            try (BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(schematic));
+                 ClipboardWriter writer = BuiltInClipboardFormat.SPONGE_V3_SCHEMATIC.getWriter(out)) {
                 writer.write(clipboard);
             }
 
-            List<SlimefunBlockRecord> records = snapshotSlimefunBlocks(player, region, clipboard.getOrigin());
-            saveSidecar(sidecarFile, clipboard.getOrigin(), records);
+            List<SfRecord> records = snapshot(player, region, clipboard.getOrigin());
+            writeSidecar(sidecar, clipboard.getOrigin(), records);
             session.setClipboard(new ClipboardHolder(clipboard));
-            LOADED.put(player.getUniqueId(), new LoadedSchematic(schematicFile.getName(), records, true));
+            LOADED.put(player.getUniqueId(), new LoadedSchematic(schematic.getName(), records, true));
 
-            long normal = records.stream().filter(record -> !record.universal()).count();
-            long universal = records.size() - normal;
-            player.sendMessage(ChatColor.GREEN + "Saved Slimefun-aware schematic " + schematicFile.getName() + '.');
-            player.sendMessage(ChatColor.GRAY + "Captured " + records.size() + " Slimefun blocks (" + normal
-                    + " normal, " + universal + " universal/embedded).");
-            player.sendMessage(ChatColor.GRAY + "Sidecar: " + sidecarFile.getName());
+            long universal = records.stream().filter(SfRecord::universal).count();
+            player.sendMessage(ChatColor.GREEN + "Saved " + schematic.getName() + " with Slimefun recovery data.");
+            player.sendMessage(ChatColor.GRAY + "Captured " + records.size() + " Slimefun blocks ("
+                    + (records.size() - universal) + " normal, " + universal + " universal/embedded).");
+            player.sendMessage(ChatColor.GRAY + "Recovery sidecar: " + sidecar.getName());
         } catch (Exception ex) {
-            WorldEditSlimefun.getInstance().getLogger().severe("Failed to save schematic '" + name + "': " + ex.getMessage());
-            ex.printStackTrace();
+            logFailure("save schematic '" + name + "'", ex);
             player.sendMessage(ChatColor.RED + "Could not save that schematic. Check console for details.");
         }
     }
@@ -148,44 +142,42 @@ public final class SlimefunSchematicManager {
     public static void load(@Nonnull Player player, @Nonnull String name) {
         WorldEdit worldEdit = WorldEdit.getInstance();
         Actor actor = BukkitAdapter.adapt(player);
-
         try {
-            File schematicFile = resolveSchematicFile(actor, name, false);
-            if (!schematicFile.exists()) {
+            File schematic = resolveSchematicFile(actor, name, false);
+            if (!schematic.exists()) {
                 player.sendMessage(ChatColor.RED + "Schematic not found: " + name);
                 return;
             }
 
-            ClipboardFormat format = ClipboardFormats.findByFile(schematicFile);
+            ClipboardFormat format = ClipboardFormats.findByFile(schematic);
             if (format == null) {
-                player.sendMessage(ChatColor.RED + "Could not determine schematic format for " + schematicFile.getName());
+                player.sendMessage(ChatColor.RED + "Unknown schematic format: " + schematic.getName());
                 return;
             }
 
             Clipboard clipboard;
-            try (BufferedInputStream input = new BufferedInputStream(new FileInputStream(schematicFile));
-                 ClipboardReader reader = format.getReader(input)) {
+            try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(schematic));
+                 ClipboardReader reader = format.getReader(in)) {
                 clipboard = reader.read();
             }
 
             LocalSession session = worldEdit.getSessionManager().get(actor);
             session.setClipboard(new ClipboardHolder(clipboard));
 
-            File sidecarFile = sidecarFor(schematicFile);
-            List<SlimefunBlockRecord> records = sidecarFile.exists() ? loadSidecar(sidecarFile) : List.of();
-            boolean hasSidecar = sidecarFile.exists();
-            LOADED.put(player.getUniqueId(), new LoadedSchematic(schematicFile.getName(), records, hasSidecar));
+            File sidecar = sidecarFor(schematic);
+            boolean hasSidecar = sidecar.exists();
+            List<SfRecord> records = hasSidecar ? readSidecar(sidecar) : List.of();
+            LOADED.put(player.getUniqueId(), new LoadedSchematic(schematic.getName(), records, hasSidecar));
 
-            player.sendMessage(ChatColor.GREEN + "Loaded " + schematicFile.getName() + ".");
+            player.sendMessage(ChatColor.GREEN + "Loaded " + schematic.getName() + '.');
             if (hasSidecar) {
-                player.sendMessage(ChatColor.GRAY + "Loaded " + records.size() + " saved Slimefun block records.");
+                player.sendMessage(ChatColor.GRAY + "Loaded " + records.size() + " Slimefun recovery records.");
             } else {
-                player.sendMessage(ChatColor.YELLOW + "No WESF sidecar was found. /wesf paste will attempt a legacy PDC relink after pasting.");
+                player.sendMessage(ChatColor.YELLOW + "No .wesf.yml sidecar found. Legacy embedded-PDC relink mode will be used.");
             }
-            player.sendMessage(ChatColor.GRAY + "Stand at the paste point, then run /wesf paste.");
+            player.sendMessage(ChatColor.GRAY + "Stand at the paste point and run /wesf paste.");
         } catch (Exception ex) {
-            WorldEditSlimefun.getInstance().getLogger().severe("Failed to load schematic '" + name + "': " + ex.getMessage());
-            ex.printStackTrace();
+            logFailure("load schematic '" + name + "'", ex);
             player.sendMessage(ChatColor.RED + "Could not load that schematic. Check console for details.");
         }
     }
@@ -204,74 +196,77 @@ public final class SlimefunSchematicManager {
         }
 
         Clipboard clipboard = holder.getClipboard();
-        long maximum = WorldEditSlimefun.getInstance().getConfig().getLong("max-selection-blocks", 2_000_000L);
-        if (maximum > 0 && clipboard.getRegion().getVolume() > maximum) {
-            player.sendMessage(ChatColor.RED + "Schematic is too large: " + clipboard.getRegion().getVolume()
-                    + " blocks (limit " + maximum + ").");
+        if (!withinLimit(player, clipboard.getRegion().getVolume())) {
             return;
         }
 
         BlockVector3 destination = session.getPlacementPosition(actor);
         EditSession editSession = session.createEditSession(actor);
         try {
-            Operation operation = holder.createPaste(editSession)
+            Operation paste = holder.createPaste(editSession)
                     .to(destination)
                     .ignoreAirBlocks(false)
                     .copyEntities(true)
                     .build();
-            Operations.completeLegacy(operation);
+            Operations.completeLegacy(paste);
             editSession.flushSession();
             session.remember(editSession);
         } catch (WorldEditException | RuntimeException ex) {
             editSession.close();
-            WorldEditSlimefun.getInstance().getLogger().severe("Failed to paste schematic: " + ex.getMessage());
-            ex.printStackTrace();
+            logFailure("paste schematic", ex);
             player.sendMessage(ChatColor.RED + "Schematic paste failed. Check console for details.");
             return;
         }
 
         LoadedSchematic loaded = LOADED.get(player.getUniqueId());
-        RestoreStats stats;
-        if (loaded != null && loaded.hasSidecar()) {
-            stats = restoreRecords(player, holder, destination, loaded.records());
-        } else {
-            stats = relinkEmbeddedPdc(player, holder, destination);
-        }
+        RestoreStats stats = loaded != null && loaded.hasSidecar()
+                ? restoreRecords(player, holder, destination, loaded.records())
+                : relinkEmbeddedPdc(player, holder, destination);
 
         player.sendMessage(ChatColor.GREEN + "Schematic pasted and Slimefun restore pass completed.");
         player.sendMessage(ChatColor.GRAY + "Restored: " + ChatColor.WHITE + stats.restored()
-                + ChatColor.GRAY + " | already registered: " + ChatColor.WHITE + stats.alreadyRegistered()
+                + ChatColor.GRAY + " | already registered: " + ChatColor.WHITE + stats.already()
                 + ChatColor.GRAY + " | unknown: " + ChatColor.WHITE + stats.unknown()
                 + ChatColor.GRAY + " | failed/unsupported: " + ChatColor.WHITE + stats.failed());
         if (loaded == null || !loaded.hasSidecar()) {
-            player.sendMessage(ChatColor.YELLOW + "Legacy schematic mode can only restore Slimefun data that was embedded in the schematic itself.");
+            player.sendMessage(ChatColor.YELLOW + "Legacy schematic mode can only rebuild state that was embedded in the old schematic.");
         }
         if (stats.restored() > 0) {
-            player.sendMessage(ChatColor.YELLOW + "For a large recovery, restart the server normally after verifying the pasted area.");
+            player.sendMessage(ChatColor.YELLOW + "After verifying a large restore, restart the server normally so tickers/networks reload cleanly.");
         }
     }
 
     @Nonnull
     public static List<String> listSchematics() {
-        File dir = schematicDirectory();
-        File[] files = dir.listFiles((folder, fileName) -> fileName.endsWith(".schem") || fileName.endsWith(".schematic"));
+        File[] files = schematicDirectory().listFiles((dir, fileName) -> {
+            String lower = fileName.toLowerCase();
+            return lower.endsWith(".schem") || lower.endsWith(".schematic");
+        });
         if (files == null || files.length == 0) {
             return List.of();
         }
 
-        List<String> names = new ArrayList<>(files.length);
+        List<String> result = new ArrayList<>(files.length);
         for (File file : files) {
-            names.add(file.getName());
+            result.add(file.getName());
         }
-        names.sort(String.CASE_INSENSITIVE_ORDER);
-        return names;
+        result.sort(String.CASE_INSENSITIVE_ORDER);
+        return result;
     }
 
-    @Nonnull
-    private static List<SlimefunBlockRecord> snapshotSlimefunBlocks(Player player, Region region, BlockVector3 origin) {
-        List<SlimefunBlockRecord> records = new ArrayList<>();
-        org.bukkit.World world = player.getWorld();
+    private static boolean withinLimit(Player player, long volume) {
+        long maximum = WorldEditSlimefun.getInstance().getConfig().getLong("max-selection-blocks", 2_000_000L);
+        if (maximum > 0 && volume > maximum) {
+            player.sendMessage(ChatColor.RED + "Area is too large: " + volume + " blocks (limit " + maximum + ").");
+            player.sendMessage(ChatColor.GRAY + "Raise max-selection-blocks in plugins/WorldEditSlimefun/config.yml if needed.");
+            return false;
+        }
+        return true;
+    }
 
+    private static List<SfRecord> snapshot(Player player, Region region, BlockVector3 origin) {
+        List<SfRecord> records = new ArrayList<>();
+        org.bukkit.World world = player.getWorld();
         for (BlockVector3 position : region) {
             Block block = world.getBlockAt(position.x(), position.y(), position.z());
             String sfId = BlockStorage.checkID(block.getLocation());
@@ -280,7 +275,7 @@ public final class SlimefunSchematicManager {
                 continue;
             }
 
-            SlimefunBlockRecord universal = snapshotUniversal(block, origin);
+            SfRecord universal = snapshotUniversal(block, origin);
             if (universal != null) {
                 records.add(universal);
                 continue;
@@ -289,50 +284,47 @@ public final class SlimefunSchematicManager {
             String embedded = findEmbeddedSlimefunId(block);
             if (embedded != null && SlimefunItem.getById(embedded) != null) {
                 BlockVector3 relative = position.subtract(origin);
-                records.add(new SlimefunBlockRecord(relative.x(), relative.y(), relative.z(), embedded,
-                        true, Map.of(), Map.of()));
+                records.add(new SfRecord(relative.x(), relative.y(), relative.z(), embedded, true, Map.of(), Map.of()));
             }
         }
-
         return records;
     }
 
-    private static SlimefunBlockRecord snapshotNormal(Block block, String sfId, BlockVector3 origin) {
+    private static SfRecord snapshotNormal(Block block, String sfId, BlockVector3 origin) {
         Map<String, String> data = new LinkedHashMap<>();
         Config info = BlockStorage.getLocationInfo(block.getLocation());
         for (String key : info.getKeys()) {
-            if ("id".equals(key)) {
-                continue;
-            }
-            String value = info.getString(key);
-            if (value != null) {
-                data.put(key, value);
+            if (!"id".equals(key)) {
+                String value = info.getString(key);
+                if (value != null) {
+                    data.put(key, value);
+                }
             }
         }
 
-        Map<Integer, ItemStack> inventory = snapshotMenu(BlockStorage.getInventory(block));
         BlockVector3 relative = BlockVector3.at(block.getX(), block.getY(), block.getZ()).subtract(origin);
-        return new SlimefunBlockRecord(relative.x(), relative.y(), relative.z(), sfId, false, data, inventory);
+        return new SfRecord(relative.x(), relative.y(), relative.z(), sfId, false, data,
+                snapshotMenu(BlockStorage.getInventory(block)));
     }
 
     @Nullable
-    private static SlimefunBlockRecord snapshotUniversal(Block block, BlockVector3 origin) {
+    private static SfRecord snapshotUniversal(Block block, BlockVector3 origin) {
         try {
-            Object controller = getLegacyBlockDataController();
+            Object controller = legacyController();
             if (controller == null) {
                 return null;
             }
 
             Method getter = controller.getClass().getMethod("getUniversalBlockDataFromCache", Location.class);
-            Object result = getter.invoke(controller, block.getLocation());
-            if (!(result instanceof Optional<?> optional) || optional.isEmpty()) {
+            Object raw = getter.invoke(controller, block.getLocation());
+            if (!(raw instanceof Optional<?> optional) || optional.isEmpty()) {
                 return null;
             }
 
-            Object universalData = optional.get();
-            String sfId = (String) universalData.getClass().getMethod("getSfId").invoke(universalData);
+            Object universal = optional.get();
+            String sfId = String.valueOf(universal.getClass().getMethod("getSfId").invoke(universal));
             Map<String, String> data = new LinkedHashMap<>();
-            Object allData = universalData.getClass().getMethod("getAllData").invoke(universalData);
+            Object allData = universal.getClass().getMethod("getAllData").invoke(universal);
             if (allData instanceof Map<?, ?> map) {
                 for (Map.Entry<?, ?> entry : map.entrySet()) {
                     if (entry.getKey() != null && entry.getValue() != null) {
@@ -342,17 +334,18 @@ public final class SlimefunSchematicManager {
             }
 
             Map<Integer, ItemStack> inventory = new LinkedHashMap<>();
-            Object contents = universalData.getClass().getMethod("getMenuContents").invoke(universalData);
+            Object contents = universal.getClass().getMethod("getMenuContents").invoke(universal);
             if (contents instanceof ItemStack[] items) {
                 for (int slot = 0; slot < items.length; slot++) {
-                    if (items[slot] != null && !items[slot].getType().isAir()) {
-                        inventory.put(slot, items[slot].clone());
+                    ItemStack item = items[slot];
+                    if (item != null && !item.getType().isAir()) {
+                        inventory.put(slot, item.clone());
                     }
                 }
             }
 
             BlockVector3 relative = BlockVector3.at(block.getX(), block.getY(), block.getZ()).subtract(origin);
-            return new SlimefunBlockRecord(relative.x(), relative.y(), relative.z(), sfId, true, data, inventory);
+            return new SfRecord(relative.x(), relative.y(), relative.z(), sfId, true, data, inventory);
         } catch (ReflectiveOperationException | LinkageError ignored) {
             return null;
         }
@@ -363,108 +356,115 @@ public final class SlimefunSchematicManager {
             return Map.of();
         }
 
-        Map<Integer, ItemStack> contents = new LinkedHashMap<>();
+        Map<Integer, ItemStack> result = new LinkedHashMap<>();
         Set<Integer> presetSlots = menu.getPreset().getPresetSlots();
-        ItemStack[] inventory = menu.toInventory().getContents();
-        for (int slot = 0; slot < inventory.length; slot++) {
-            ItemStack item = inventory[slot];
+        ItemStack[] contents = menu.toInventory().getContents();
+        for (int slot = 0; slot < contents.length; slot++) {
+            ItemStack item = contents[slot];
             if (!presetSlots.contains(slot) && item != null && !item.getType().isAir()) {
-                contents.put(slot, item.clone());
+                result.put(slot, item.clone());
             }
         }
-        return contents;
+        return result;
     }
 
-    private static void saveSidecar(File file, BlockVector3 origin, List<SlimefunBlockRecord> records) throws IOException {
+    private static void writeSidecar(File file, BlockVector3 origin, List<SfRecord> records) throws IOException {
         YamlConfiguration yaml = new YamlConfiguration();
         yaml.set("schema", SIDECAR_SCHEMA);
         yaml.set("origin.x", origin.x());
         yaml.set("origin.y", origin.y());
         yaml.set("origin.z", origin.z());
 
-        List<Map<String, Object>> serialized = new ArrayList<>(records.size());
-        for (SlimefunBlockRecord record : records) {
-            Map<String, Object> map = new LinkedHashMap<>();
-            map.put("x", record.x());
-            map.put("y", record.y());
-            map.put("z", record.z());
-            map.put("id", record.sfId());
-            map.put("universal", record.universal());
-            map.put("data", new LinkedHashMap<>(record.data()));
+        List<Map<String, Object>> blocks = new ArrayList<>(records.size());
+        for (SfRecord record : records) {
+            Map<String, Object> block = new LinkedHashMap<>();
+            block.put("x", record.x());
+            block.put("y", record.y());
+            block.put("z", record.z());
+            block.put("id", record.sfId());
+            block.put("universal", record.universal());
+            block.put("data", new LinkedHashMap<>(record.data()));
 
             Map<String, Object> inventory = new LinkedHashMap<>();
-            for (Map.Entry<Integer, ItemStack> entry : record.inventory().entrySet()) {
-                inventory.put(String.valueOf(entry.getKey()), entry.getValue());
-            }
-            map.put("inventory", inventory);
-            serialized.add(map);
+            record.inventory().forEach((slot, item) -> inventory.put(String.valueOf(slot), item));
+            block.put("inventory", inventory);
+            blocks.add(block);
         }
-        yaml.set("blocks", serialized);
+        yaml.set("blocks", blocks);
         yaml.save(file);
     }
 
-    @Nonnull
-    private static List<SlimefunBlockRecord> loadSidecar(File file) throws IOException {
+    private static List<SfRecord> readSidecar(File file) throws IOException {
         YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
         int schema = yaml.getInt("schema", 0);
         if (schema != SIDECAR_SCHEMA) {
             throw new IOException("Unsupported WESF sidecar schema: " + schema);
         }
 
-        List<SlimefunBlockRecord> records = new ArrayList<>();
+        List<SfRecord> result = new ArrayList<>();
         for (Map<?, ?> raw : yaml.getMapList("blocks")) {
             int x = intValue(raw.get("x"));
             int y = intValue(raw.get("y"));
             int z = intValue(raw.get("z"));
             String sfId = String.valueOf(raw.get("id"));
-            boolean universal = Boolean.parseBoolean(String.valueOf(raw.getOrDefault("universal", false)));
+            Object universalValue = raw.containsKey("universal") ? raw.get("universal") : Boolean.FALSE;
+            boolean universal = Boolean.parseBoolean(String.valueOf(universalValue));
 
-            Map<String, String> data = new LinkedHashMap<>();
-            Object rawData = raw.get("data");
-            if (rawData instanceof Map<?, ?> map) {
-                for (Map.Entry<?, ?> entry : map.entrySet()) {
-                    if (entry.getKey() != null && entry.getValue() != null) {
-                        data.put(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
-                    }
-                }
-            }
-
-            Map<Integer, ItemStack> inventory = new LinkedHashMap<>();
-            Object rawInventory = raw.get("inventory");
-            if (rawInventory instanceof Map<?, ?> map) {
-                for (Map.Entry<?, ?> entry : map.entrySet()) {
-                    try {
-                        int slot = Integer.parseInt(String.valueOf(entry.getKey()));
-                        if (entry.getValue() instanceof ItemStack item) {
-                            inventory.put(slot, item.clone());
-                        } else if (entry.getValue() instanceof Map<?, ?> itemMap) {
-                            Map<String, Object> values = new LinkedHashMap<>();
-                            for (Map.Entry<?, ?> itemEntry : itemMap.entrySet()) {
-                                if (itemEntry.getKey() != null) {
-                                    values.put(String.valueOf(itemEntry.getKey()), itemEntry.getValue());
-                                }
-                            }
-                            inventory.put(slot, ItemStack.deserialize(values));
-                        }
-                    } catch (RuntimeException ignored) {
-                        // A corrupt slot should not make an otherwise useful recovery unusable.
-                    }
-                }
-            }
-
-            records.add(new SlimefunBlockRecord(x, y, z, sfId, universal, data, inventory));
+            Map<String, String> data = stringMap(raw.get("data"));
+            Map<Integer, ItemStack> inventory = itemMap(raw.get("inventory"));
+            result.add(new SfRecord(x, y, z, sfId, universal, data, inventory));
         }
-        return records;
+        return result;
+    }
+
+    private static Map<String, String> stringMap(Object raw) {
+        Map<String, String> result = new LinkedHashMap<>();
+        if (raw instanceof Map<?, ?> map) {
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null) {
+                    result.put(String.valueOf(entry.getKey()), String.valueOf(entry.getValue()));
+                }
+            }
+        }
+        return result;
+    }
+
+    private static Map<Integer, ItemStack> itemMap(Object raw) {
+        Map<Integer, ItemStack> result = new LinkedHashMap<>();
+        if (!(raw instanceof Map<?, ?> map)) {
+            return result;
+        }
+
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            try {
+                int slot = Integer.parseInt(String.valueOf(entry.getKey()));
+                Object value = entry.getValue();
+                if (value instanceof ItemStack item) {
+                    result.put(slot, item.clone());
+                } else if (value instanceof Map<?, ?> serialized) {
+                    Map<String, Object> values = new LinkedHashMap<>();
+                    serialized.forEach((key, itemValue) -> {
+                        if (key != null) {
+                            values.put(String.valueOf(key), itemValue);
+                        }
+                    });
+                    result.put(slot, ItemStack.deserialize(values));
+                }
+            } catch (RuntimeException ignored) {
+                // Skip a corrupt inventory slot without discarding the rest of the backup.
+            }
+        }
+        return result;
     }
 
     private static RestoreStats restoreRecords(Player player, ClipboardHolder holder, BlockVector3 destination,
-                                                List<SlimefunBlockRecord> records) {
+                                                List<SfRecord> records) {
         long restored = 0;
         long already = 0;
         long unknown = 0;
         long failed = 0;
 
-        for (SlimefunBlockRecord record : records) {
+        for (SfRecord record : records) {
             SlimefunItem sfItem = SlimefunItem.getById(record.sfId());
             if (sfItem == null || sfItem instanceof UnplaceableBlock) {
                 unknown++;
@@ -473,9 +473,9 @@ public final class SlimefunSchematicManager {
 
             BlockVector3 target = transformRelative(holder, destination, BlockVector3.at(record.x(), record.y(), record.z()));
             Block block = player.getWorld().getBlockAt(target.x(), target.y(), target.z());
-
             String existing = BlockStorage.checkID(block.getLocation());
-            if (existing != null && existing.equals(record.sfId()) && !record.universal()) {
+
+            if (!record.universal() && record.sfId().equals(existing)) {
                 already++;
                 reapplyNormalState(block, record);
                 continue;
@@ -486,13 +486,12 @@ public final class SlimefunSchematicManager {
                     BlockStorage.deleteLocationInfoUnsafely(block.getLocation(), true);
                 }
 
-                boolean createdUniversal = record.universal() && restoreUniversal(block, record);
-                if (!createdUniversal) {
+                if (record.universal() && restoreUniversal(block, record)) {
+                    callPlaceHandlerSafely(player, block, sfItem);
+                } else {
                     BlockStorage.store(block, record.sfId());
                     callPlaceHandler(player, block, sfItem);
                     reapplyNormalState(block, record);
-                } else {
-                    callPlaceHandlerSafely(player, block, sfItem);
                 }
                 restored++;
             } catch (Exception | LinkageError ex) {
@@ -501,45 +500,45 @@ public final class SlimefunSchematicManager {
                         + block.getX() + ',' + block.getY() + ',' + block.getZ() + ": " + ex.getMessage());
             }
         }
-
         return new RestoreStats(restored, already, unknown, failed);
     }
 
-    private static void reapplyNormalState(Block block, SlimefunBlockRecord record) {
-        for (Map.Entry<String, String> entry : record.data().entrySet()) {
-            BlockStorage.addBlockInfo(block.getLocation(), entry.getKey(), entry.getValue());
+    private static void reapplyNormalState(Block block, SfRecord record) {
+        record.data().forEach((key, value) -> BlockStorage.addBlockInfo(block.getLocation(), key, value));
+        BlockMenu menu = BlockStorage.getInventory(block);
+        if (menu == null) {
+            return;
         }
 
-        BlockMenu menu = BlockStorage.getInventory(block);
-        if (menu != null) {
-            for (Map.Entry<Integer, ItemStack> entry : record.inventory().entrySet()) {
-                if (entry.getKey() >= 0 && entry.getKey() < menu.toInventory().getSize()) {
-                    menu.replaceExistingItem(entry.getKey(), entry.getValue().clone(), false);
-                }
+        int size = menu.toInventory().getSize();
+        for (Map.Entry<Integer, ItemStack> entry : record.inventory().entrySet()) {
+            if (entry.getKey() >= 0 && entry.getKey() < size) {
+                menu.replaceExistingItem(entry.getKey(), entry.getValue().clone(), false);
             }
-            menu.save(block.getLocation());
         }
+        menu.save(block.getLocation());
     }
 
-    private static boolean restoreUniversal(Block block, SlimefunBlockRecord record) {
+    private static boolean restoreUniversal(Block block, SfRecord record) {
         try {
-            Object controller = getLegacyBlockDataController();
+            Object controller = legacyController();
             if (controller == null) {
                 return false;
             }
 
-            Method creator = controller.getClass().getMethod("createUniversalBlock", Location.class, String.class);
-            Object universalData = creator.invoke(controller, block.getLocation(), record.sfId());
-            Method setData = universalData.getClass().getMethod("setData", String.class, String.class);
+            Object data = controller.getClass()
+                    .getMethod("createUniversalBlock", Location.class, String.class)
+                    .invoke(controller, block.getLocation(), record.sfId());
+            Method setData = data.getClass().getMethod("setData", String.class, String.class);
             for (Map.Entry<String, String> entry : record.data().entrySet()) {
                 try {
-                    setData.invoke(universalData, entry.getKey(), entry.getValue());
+                    setData.invoke(data, entry.getKey(), entry.getValue());
                 } catch (InvocationTargetException ignored) {
-                    // Reserved universal keys (location/traits) are regenerated for the new destination.
+                    // Reserved universal keys are regenerated for the new destination/UUID.
                 }
             }
 
-            Object menu = universalData.getClass().getMethod("getMenu").invoke(universalData);
+            Object menu = data.getClass().getMethod("getMenu").invoke(data);
             if (menu != null) {
                 Method replace = menu.getClass().getMethod("replaceExistingItem", int.class, ItemStack.class, boolean.class);
                 for (Map.Entry<Integer, ItemStack> entry : record.inventory().entrySet()) {
@@ -561,8 +560,8 @@ public final class SlimefunSchematicManager {
         long already = 0;
         long unknown = 0;
         long failed = 0;
-
         Clipboard clipboard = holder.getClipboard();
+
         for (BlockVector3 source : clipboard.getRegion()) {
             BlockVector3 relative = source.subtract(clipboard.getOrigin());
             BlockVector3 target = transformRelative(holder, destination, relative);
@@ -592,8 +591,8 @@ public final class SlimefunSchematicManager {
                     BlockStorage.store(block, sfId);
                     callPlaceHandler(player, block, sfItem);
                 } catch (IllegalArgumentException normalFailure) {
-                    SlimefunBlockRecord universal = new SlimefunBlockRecord(relative.x(), relative.y(), relative.z(),
-                            sfId, true, Map.of(), Map.of());
+                    SfRecord universal = new SfRecord(relative.x(), relative.y(), relative.z(), sfId,
+                            true, Map.of(), Map.of());
                     if (!restoreUniversal(block, universal)) {
                         throw normalFailure;
                     }
@@ -604,7 +603,6 @@ public final class SlimefunSchematicManager {
                 failed++;
             }
         }
-
         return new RestoreStats(restored, already, unknown, failed);
     }
 
@@ -642,25 +640,22 @@ public final class SlimefunSchematicManager {
 
     private static void callPlaceHandler(Player player, Block block, SlimefunItem sfItem) {
         ItemStack item = sfItem.getItem();
-        sfItem.callItemHandler(BlockPlaceHandler.class, handler -> {
-            BlockPlaceEvent event = new BlockPlaceEvent(
-                    block,
-                    block.getState(),
-                    block.getRelative(BlockFace.DOWN),
-                    item,
-                    player,
-                    true,
-                    EquipmentSlot.HAND);
-            handler.onPlayerPlace(event);
-        });
+        sfItem.callItemHandler(BlockPlaceHandler.class, handler -> handler.onPlayerPlace(new BlockPlaceEvent(
+                block,
+                block.getState(),
+                block.getRelative(BlockFace.DOWN),
+                item,
+                player,
+                true,
+                EquipmentSlot.HAND)));
     }
 
     private static void callPlaceHandlerSafely(Player player, Block block, SlimefunItem sfItem) {
         try {
             callPlaceHandler(player, block, sfItem);
         } catch (RuntimeException | LinkageError ex) {
-            WorldEditSlimefun.getInstance().getLogger().warning("Placement hook failed while restoring "
-                    + sfItem.getId() + " at " + block.getLocation() + ": " + ex.getMessage());
+            WorldEditSlimefun.getInstance().getLogger().warning("Placement hook failed for " + sfItem.getId()
+                    + " at " + block.getLocation() + ": " + ex.getMessage());
         }
     }
 
@@ -670,27 +665,21 @@ public final class SlimefunSchematicManager {
     }
 
     @Nullable
-    private static Object getLegacyBlockDataController() throws ReflectiveOperationException, ClassNotFoundException {
-        Class<?> slimefunClass = Class.forName("io.github.thebusybiscuit.slimefun4.implementation.Slimefun");
-        Method databaseManager = slimefunClass.getMethod("getDatabaseManager");
-        Object manager = databaseManager.invoke(null);
-        if (manager == null) {
-            return null;
-        }
-        return manager.getClass().getMethod("getBlockDataController").invoke(manager);
+    private static Object legacyController() throws ReflectiveOperationException, ClassNotFoundException {
+        Class<?> slimefun = Class.forName("io.github.thebusybiscuit.slimefun4.implementation.Slimefun");
+        Object database = slimefun.getMethod("getDatabaseManager").invoke(null);
+        return database == null ? null : database.getClass().getMethod("getBlockDataController").invoke(database);
     }
 
     private static File resolveSchematicFile(Actor actor, String name, boolean save) throws Exception {
         WorldEdit worldEdit = WorldEdit.getInstance();
-        File dir = schematicDirectory();
-        if (!dir.exists() && !dir.mkdirs()) {
-            throw new IOException("Unable to create schematic directory: " + dir);
+        File directory = schematicDirectory();
+        if (!directory.exists() && !directory.mkdirs()) {
+            throw new IOException("Unable to create schematic directory: " + directory);
         }
-
-        if (save) {
-            return worldEdit.getSafeSaveFile(actor, dir, name, "schem");
-        }
-        return worldEdit.getSafeOpenFile(actor, dir, name, "schem", ClipboardFormats.getFileExtensionArray());
+        return save
+                ? worldEdit.getSafeSaveFile(actor, directory, name, "schem")
+                : worldEdit.getSafeOpenFile(actor, directory, name, "schem", ClipboardFormats.getFileExtensionArray());
     }
 
     private static File schematicDirectory() {
@@ -707,22 +696,18 @@ public final class SlimefunSchematicManager {
     }
 
     private static int intValue(Object value) {
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        return Integer.parseInt(String.valueOf(value));
+        return value instanceof Number number ? number.intValue() : Integer.parseInt(String.valueOf(value));
     }
 
-    private record LoadedSchematic(String name, List<SlimefunBlockRecord> records, boolean hasSidecar) {}
+    private static void logFailure(String operation, Throwable throwable) {
+        WorldEditSlimefun.getInstance().getLogger().severe("Failed to " + operation + ": " + throwable.getMessage());
+        throwable.printStackTrace();
+    }
 
-    private record SlimefunBlockRecord(
-            int x,
-            int y,
-            int z,
-            String sfId,
-            boolean universal,
-            Map<String, String> data,
-            Map<Integer, ItemStack> inventory) {}
+    private record LoadedSchematic(String name, List<SfRecord> records, boolean hasSidecar) {}
 
-    private record RestoreStats(long restored, long alreadyRegistered, long unknown, long failed) {}
+    private record SfRecord(int x, int y, int z, String sfId, boolean universal,
+                            Map<String, String> data, Map<Integer, ItemStack> inventory) {}
+
+    private record RestoreStats(long restored, long already, long unknown, long failed) {}
 }
