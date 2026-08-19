@@ -14,6 +14,7 @@ import co.aikar.commands.annotation.Subcommand;
 import dev.j3fftw.worldeditslimefun.WorldEditSlimefun;
 import dev.j3fftw.worldeditslimefun.commands.flags.CommandFlag;
 import dev.j3fftw.worldeditslimefun.commands.flags.CommandFlags;
+import dev.j3fftw.worldeditslimefun.utils.LegacySchematicInference;
 import dev.j3fftw.worldeditslimefun.utils.PositionManager;
 import dev.j3fftw.worldeditslimefun.utils.SelectionResolver;
 import dev.j3fftw.worldeditslimefun.utils.SelectionResolver.Selection;
@@ -149,6 +150,7 @@ public class WorldEditSlimefunCommands extends BaseCommand {
     public void paste(Player player, @Default("__SCHEMATIC__") String sfId, String[] commandFlags) {
         if ("__SCHEMATIC__".equals(sfId)) {
             SlimefunSchematicManager.paste(player);
+            LegacySchematicInference.restore(player);
             return;
         }
 
