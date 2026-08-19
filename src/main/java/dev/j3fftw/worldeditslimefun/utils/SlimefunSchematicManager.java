@@ -200,8 +200,15 @@ public final class SlimefunSchematicManager {
             return;
         }
 
-        BlockVector3 destination = session.getPlacementPosition(actor);
-        EditSession editSession = session.createEditSession(actor);
+        final BlockVector3 destination;
+try {
+    destination = session.getPlacementPosition(actor);
+} catch (IncompleteRegionException ex) {
+    player.sendMessage(ChatColor.RED + "WorldEdit could not resolve your paste position.");
+    return;
+}
+
+EditSession editSession = session.createEditSession(actor);
         try {
             Operation paste = holder.createPaste(editSession)
                     .to(destination)
