@@ -6,11 +6,11 @@
 
     <groupId>dev.j3fftw</groupId>
     <artifactId>WorldEditSlimefun</artifactId>
-    <version>1.0.1</version>
+    <version>1.0.2</version>
     <packaging>jar</packaging>
 
     <name>WorldEditSlimefun</name>
-    <description>Slimefun-aware editing and recovery tools for WorldEdit/FastAsyncWorldEdit.</description>
+    <description>Slimefun-aware editing, schematic backup and recovery tools for WorldEdit/FastAsyncWorldEdit.</description>
 
     <properties>
         <java.version>21</java.version>
@@ -21,7 +21,7 @@
 
     <build>
         <defaultGoal>clean package</defaultGoal>
-        <finalName>SF_SFLWorldEdit_1.0.1</finalName>
+        <finalName>SF_SFLWorldEdit_${project.version}</finalName>
         <sourceDirectory>${basedir}/src/main/java</sourceDirectory>
 
         <plugins>

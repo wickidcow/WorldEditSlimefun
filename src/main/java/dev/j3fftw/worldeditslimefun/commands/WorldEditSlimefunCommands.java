@@ -17,6 +17,7 @@ import dev.j3fftw.worldeditslimefun.commands.flags.CommandFlags;
 import dev.j3fftw.worldeditslimefun.utils.PositionManager;
 import dev.j3fftw.worldeditslimefun.utils.SelectionResolver;
 import dev.j3fftw.worldeditslimefun.utils.SelectionResolver.Selection;
+import dev.j3fftw.worldeditslimefun.utils.SlimefunSchematicManager;
 import dev.j3fftw.worldeditslimefun.utils.Utils;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem;
 import io.github.thebusybiscuit.slimefun4.core.handlers.BlockBreakHandler;
@@ -49,6 +50,7 @@ public class WorldEditSlimefunCommands extends BaseCommand {
         CommandContexts<BukkitCommandExecutionContext> contexts = manager.getCommandContexts();
 
         completions.registerStaticCompletion("slimefun_blocks", Utils.SLIMEFUN_BLOCKS);
+        completions.registerAsyncCompletion("wesf_schematics", context -> SlimefunSchematicManager.listSchematics());
         completions.registerAsyncCompletion("command_flags", context -> {
             List<String> args = new ArrayList<>(Arrays.asList(context.getContextValueByName(String[].class, "commandFlags")));
             List<String> availableFlags = new ArrayList<>(CommandFlags.getFlagTypes().keySet());
@@ -80,8 +82,44 @@ public class WorldEditSlimefunCommands extends BaseCommand {
 
     @Default
     public void onDefault(Player player) {
-        player.sendMessage(ChatColor.RED + "Please provide a valid subcommand.");
-        player.sendMessage(ChatColor.GRAY + "Use your WorldEdit/FAWE selection for paste, clear, audit and recover.");
+        player.sendMessage(ChatColor.GOLD + "WorldEditSlimefun commands:");
+        player.sendMessage(ChatColor.GRAY + "/wesf schem save <name> [overwrite]");
+        player.sendMessage(ChatColor.GRAY + "/wesf schem load <name>");
+        player.sendMessage(ChatColor.GRAY + "/wesf paste " + ChatColor.DARK_GRAY + "- paste loaded schematic and restore Slimefun");
+        player.sendMessage(ChatColor.GRAY + "/wesf paste <slimefun-id> [flags] " + ChatColor.DARK_GRAY + "- legacy selection fill");
+        player.sendMessage(ChatColor.GRAY + "/wesf clear | audit | recover | wand | pos1 | pos2");
+    }
+
+    @Subcommand("schem")
+    public void schem(Player player) {
+        player.sendMessage(ChatColor.GOLD + "Slimefun-aware schematics:");
+        player.sendMessage(ChatColor.GRAY + "/wesf schem save <name> [overwrite]");
+        player.sendMessage(ChatColor.GRAY + "/wesf schem load <name>");
+        player.sendMessage(ChatColor.GRAY + "/wesf schem list");
+        player.sendMessage(ChatColor.GRAY + "Then stand at the paste point and run /wesf paste.");
+    }
+
+    @Subcommand("schem save")
+    @CommandCompletion("<name> false|true")
+    public void saveSchematic(Player player, String name, @Default("false") boolean overwrite) {
+        SlimefunSchematicManager.save(player, name, overwrite);
+    }
+
+    @Subcommand("schem load")
+    @CommandCompletion("@wesf_schematics")
+    public void loadSchematic(Player player, String name) {
+        SlimefunSchematicManager.load(player, name);
+    }
+
+    @Subcommand("schem list")
+    public void listSchematics(Player player) {
+        List<String> names = SlimefunSchematicManager.listSchematics();
+        if (names.isEmpty()) {
+            player.sendMessage(ChatColor.YELLOW + "No schematics found in the WorldEdit/FAWE schematic folder.");
+            return;
+        }
+        player.sendMessage(ChatColor.GOLD + "Available schematics (" + names.size() + "):");
+        player.sendMessage(ChatColor.GRAY + String.join(", ", names));
     }
 
     @Subcommand("wand")
@@ -108,7 +146,12 @@ public class WorldEditSlimefunCommands extends BaseCommand {
 
     @Subcommand("paste")
     @CommandCompletion("@slimefun_blocks @command_flags")
-    public void paste(Player player, @Default("INVALID") String sfId, String[] commandFlags) {
+    public void paste(Player player, @Default("__SCHEMATIC__") String sfId, String[] commandFlags) {
+        if ("__SCHEMATIC__".equals(sfId)) {
+            SlimefunSchematicManager.paste(player);
+            return;
+        }
+
         Selection selection = requireSelection(player);
         if (selection == null || !isSelectionAllowed(player, selection)) {
             return;
@@ -182,10 +225,6 @@ public class WorldEditSlimefunCommands extends BaseCommand {
         player.sendMessage("Took " + time + "ms to clear!");
     }
 
-    /**
-     * Audits the active WorldEdit/FAWE selection for surviving Slimefun storage records.
-     * This is useful before attempting recovery of an area previously cleared by WorldEdit/FAWE.
-     */
     @Subcommand("audit")
     public void audit(Player player) {
         Selection selection = requireSelection(player);
@@ -224,13 +263,6 @@ public class WorldEditSlimefunCommands extends BaseCommand {
         player.sendMessage(ChatColor.GRAY + "Scan time: " + ChatColor.WHITE + (System.currentTimeMillis() - start) + "ms");
     }
 
-    /**
-     * Recreates the vanilla block material for surviving Slimefun records in air.
-     * Existing Slimefun storage is intentionally preserved; this command does not invent
-     * missing IDs or overwrite saved inventories/data.
-     *
-     * @param force when true, also replaces non-air material mismatches
-     */
     @Subcommand("recover")
     @CommandCompletion("false|true")
     public void recover(Player player, @Default("false") boolean force) {
@@ -304,11 +336,6 @@ public class WorldEditSlimefunCommands extends BaseCommand {
         return true;
     }
 
-    /**
-     * @param selection selection to iterate
-     * @param blockRunnable operation to perform for every block
-     * @return amount of blocks visited
-     */
     private long loopThroughSelection(Selection selection, Consumer<Block> blockRunnable) {
         long amountOfBlocks = 0;
         for (int x = selection.minX(); x <= selection.maxX(); x++) {
