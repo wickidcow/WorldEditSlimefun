@@ -1,3 +1,4 @@
 # Maximum number of blocks WorldEditSlimefun will scan or edit synchronously.
+# This limit also applies to Slimefun-aware schematic save and restore operations.
 # Set to 0 to disable the limit. Raise carefully for very large recovery jobs.
 max-selection-blocks: 2000000
