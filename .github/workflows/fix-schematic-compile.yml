@@ -1,0 +1,47 @@
+name: Apply Schematic Compile Fix
+
+on:
+  push:
+    branches: [slimefun-schematic-restore]
+    paths:
+      - '.github/workflows/fix-schematic-compile.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: slimefun-schematic-restore
+      - name: Apply checked-exception fix
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('src/main/java/dev/j3fftw/worldeditslimefun/utils/SlimefunSchematicManager.java')
+          text = path.read_text()
+          old = '        BlockVector3 destination = session.getPlacementPosition(actor);\n        EditSession editSession = session.createEditSession(actor);'
+          new = '''        final BlockVector3 destination;
+          try {
+              destination = session.getPlacementPosition(actor);
+          } catch (IncompleteRegionException ex) {
+              player.sendMessage(ChatColor.RED + "WorldEdit could not resolve your paste position.");
+              return;
+          }
+
+          EditSession editSession = session.createEditSession(actor);'''
+          if old not in text:
+              raise SystemExit('Expected source text was not found')
+          path.write_text(text.replace(old, new, 1))
+      - name: Commit fix and remove helper workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/fix-schematic-compile.yml
+          git add src/main/java/dev/j3fftw/worldeditslimefun/utils/SlimefunSchematicManager.java
+          git commit -m "Fix schematic paste placement exception handling"
+          git push origin HEAD:slimefun-schematic-restore
