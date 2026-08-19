@@ -44,7 +44,7 @@ jobs:
       - name: Upload raw JAR artifact
         uses: actions/upload-artifact@v7
         with:
-          name: SF_SFLWorldEdit_1.0.1.jar
+          name: SF_SFLWorldEdit_${{ steps.project.outputs.version }}.jar
           path: ${{ steps.project.outputs.jar }}
           archive: false
           if-no-files-found: error
