@@ -1,7 +1,7 @@
 name: WorldEditSlimefun
 version: '${project.version}'
 main: dev.j3fftw.worldeditslimefun.WorldEditSlimefun
-api-version: '26.2'
+api-version: '1.21.11'
 authors: [J3fftw1]
 contributors: [wickidcow]
 website: https://github.com/wickidcow/WorldEditSlimefun
