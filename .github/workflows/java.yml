@@ -73,13 +73,16 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then TAG="$GITHUB_REF_NAME"; else TAG="v${VERSION}"; fi
           TITLE="SFWorldEdit ${VERSION}"
           NOTES="Compatibility release for Minecraft/Purpur 1.21.11 through Paper/Purpur 26.2. Requires WorldEdit or FAWE. Keeps the existing schematic recovery improvements while emitting Java 21 bytecode and compile-checking both supported endpoints."
+          RELEASE_JAR="target/SF_SFWorldEdit${VERSION}_1.21.11-26.2.jar"
+          cp "$JAR" "$RELEASE_JAR"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            OLD="SF_SFLWorldEdit_${VERSION}.jar"
-            if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fxq "$OLD"; then
-              gh release delete-asset "$TAG" "$OLD" -y
-            fi
-            gh release upload "$TAG" "$JAR" --clobber
+            for OLD in "SF_SFLWorldEdit_${VERSION}.jar" "SF_SFWorldEdit${VERSION}_.1.21.11-26.2.jar"; do
+              if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fxq "$OLD"; then
+                gh release delete-asset "$TAG" "$OLD" -y
+              fi
+            done
+            gh release upload "$TAG" "$RELEASE_JAR" --clobber
             gh release edit "$TAG" --title "$TITLE" --notes "$NOTES"
           else
-            gh release create "$TAG" "$JAR" --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES"
+            gh release create "$TAG" "$RELEASE_JAR" --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES"
           fi
