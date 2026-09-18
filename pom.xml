@@ -21,7 +21,7 @@
 
     <build>
         <defaultGoal>clean package</defaultGoal>
-        <finalName>SF_SFLWorldEdit_${project.version}</finalName>
+        <finalName>SF_SFWorldEdit${project.version}_(1.21.11-26.2)</finalName>
         <sourceDirectory>${basedir}/src/main/java</sourceDirectory>
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version><configuration><release>${java.version}</release><parameters>true</parameters></configuration></plugin>
