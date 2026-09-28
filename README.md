@@ -2,15 +2,16 @@
 
 WorldEditSlimefun is a Slimefun-aware editing, schematic backup, and recovery addon maintained for modern Paper servers.
 
-This fork targets **Paper 26.2**, works with **FastAsyncWorldEdit (FAWE)** through the normal WorldEdit API, and keeps the original WorldEditSlimefun mass-paste/testing tools.
+This fork targets **Paper 1.21.11 through 26.3**, works with **WorldEdit or FastAsyncWorldEdit (FAWE)** through the normal WorldEdit API, and keeps the original WorldEditSlimefun mass-paste/testing tools.
 
 ## Requirements
 
-- Paper 26.2+
+- Paper 1.21.11 through 26.3
 - Java 25 runtime
 - Slimefun / Slimefun Legacy
 - WorldEdit-compatible provider
-  - FastAsyncWorldEdit 2.15.3+ is recommended for Paper 26.2
+  - WorldEdit 7.4.6 Beta 2+ supports Paper 26.3
+  - For FAWE on 26.3, use a build that explicitly includes Minecraft 26.3 support
 
 FAWE provides the WorldEdit API, so you should not install standard WorldEdit alongside FAWE.
 
@@ -126,10 +127,14 @@ A normal server restart is recommended after a large restore so Slimefun tickers
 GitHub Actions exposes the compiled JAR as a **raw, uncompressed artifact**:
 
 ```text
-SF_SFLWorldEdit_1.0.2.jar
+SF_SFWorldEdit1.0.6_(1.21.11-26.3).jar
 ```
 
-The same raw JAR is published as a GitHub Release asset from the default branch/tag release workflow.
+The default branch/tag release workflow also publishes a GitHub Release asset with a GitHub-safe filename:
+
+```text
+SF_SFWorldEdit1.0.6_1.21.11-26.3.jar
+```
 
 ## Credits
 

@@ -31,14 +31,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fq '<version>1.0.5</version>' pom.xml
+          grep -Fq '<version>1.0.6</version>' pom.xml
           grep -Fq '<paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>' pom.xml
+          grep -Fq '<worldedit.version>7.4.6-SNAPSHOT</worldedit.version>' pom.xml
           grep -Fq '<java.version>21</java.version>' pom.xml
           grep -Fq "api-version: '1.21.11'" src/main/resources/plugin.yml
       - name: Verify Paper/Purpur 1.21.11 compilation
         run: mvn --batch-mode clean package
       - name: Verify Paper/Purpur 26.2 compilation
         run: mvn --batch-mode -Dpaper.version=26.2.build.111-stable clean package
+      - name: Verify Paper/Purpur 26.3 compilation
+        run: mvn --batch-mode -Dpaper.version=26.3.build.49-alpha clean package
       - name: Build universal release JAR from 1.21.11 baseline
         run: mvn --batch-mode -Dpaper.version=1.21.11-R0.1-SNAPSHOT clean package
       - name: Resolve and verify build output
@@ -47,7 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)"
-          JAR="target/SF_SFWorldEdit${VERSION}_(1.21.11-26.2).jar"
+          JAR="target/SF_SFWorldEdit${VERSION}_(1.21.11-26.3).jar"
           test -s "$JAR"
           unzip -p "$JAR" plugin.yml | grep -Fq "api-version: '1.21.11'"
           javap -verbose -classpath "$JAR" dev.j3fftw.worldeditslimefun.WorldEditSlimefun | grep -Fq 'major version: 65'
@@ -57,7 +60,7 @@ jobs:
       - name: Upload raw JAR artifact
         uses: actions/upload-artifact@v7
         with:
-          name: SF_SFWorldEdit${{ steps.project.outputs.version }}_(1.21.11-26.2).jar
+          name: SF_SFWorldEdit${{ steps.project.outputs.version }}_(1.21.11-26.3).jar
           path: ${{ steps.project.outputs.jar }}
           archive: false
           if-no-files-found: error
@@ -72,11 +75,11 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then TAG="$GITHUB_REF_NAME"; else TAG="v${VERSION}"; fi
           TITLE="SFWorldEdit ${VERSION}"
-          NOTES="Compatibility release for Minecraft/Purpur 1.21.11 through Paper/Purpur 26.2. Requires WorldEdit or FAWE. Keeps the existing schematic recovery improvements while emitting Java 21 bytecode and compile-checking both supported endpoints."
-          RELEASE_JAR="target/SF_SFWorldEdit${VERSION}_1.21.11-26.2.jar"
+          NOTES="Compatibility release for Minecraft/Purpur 1.21.11 through 26.3. Requires WorldEdit or FAWE and compiles against the WorldEdit 7.4.6 snapshot API. Keeps the existing schematic recovery improvements while emitting Java 21 bytecode and compile-checking 1.21.11, 26.2, and 26.3."
+          RELEASE_JAR="target/SF_SFWorldEdit${VERSION}_1.21.11-26.3.jar"
           cp "$JAR" "$RELEASE_JAR"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            for OLD in "SF_SFLWorldEdit_${VERSION}.jar" "SF_SFWorldEdit${VERSION}_.1.21.11-26.2.jar"; do
+            for OLD in "SF_SFLWorldEdit_${VERSION}.jar" "SF_SFWorldEdit${VERSION}_.1.21.11-26.2.jar" "SF_SFWorldEdit${VERSION}_.1.21.11-26.3.jar"; do
               if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fxq "$OLD"; then
                 gh release delete-asset "$TAG" "$OLD" -y
               fi
