@@ -6,22 +6,22 @@
 
     <groupId>dev.j3fftw</groupId>
     <artifactId>WorldEditSlimefun</artifactId>
-    <version>1.0.5</version>
+    <version>1.0.6</version>
     <packaging>jar</packaging>
 
     <name>WorldEditSlimefun</name>
-    <description>Slimefun-aware editing, schematic backup and recovery tools for WorldEdit/FAWE on Minecraft 1.21.11 through 26.2.</description>
+    <description>Slimefun-aware editing, schematic backup and recovery tools for WorldEdit/FAWE on Minecraft 1.21.11 through 26.3.</description>
 
     <properties>
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>
-        <worldedit.version>7.3.6</worldedit.version>
+        <worldedit.version>7.4.6-SNAPSHOT</worldedit.version>
     </properties>
 
     <build>
         <defaultGoal>clean package</defaultGoal>
-        <finalName>SF_SFWorldEdit${project.version}_(1.21.11-26.2)</finalName>
+        <finalName>SF_SFWorldEdit${project.version}_(1.21.11-26.3)</finalName>
         <sourceDirectory>${basedir}/src/main/java</sourceDirectory>
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version><configuration><release>${java.version}</release><parameters>true</parameters></configuration></plugin>
