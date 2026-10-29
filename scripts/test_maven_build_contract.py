@@ -34,6 +34,17 @@ def check_build_contract(source: str) -> None:
     # Maven JAR and Shade use this fixed timestamp for reproducible ZIP entries.
     if root.findtext("m:properties/m:project.build.outputTimestamp", namespaces=NS) != "2026-10-29T00:00:00Z":
         raise ValueError("The canonical build must have a fixed checked-in output timestamp")
+    shade = next(p for p in root.findall("m:build/m:plugins/m:plugin", NS)
+                 if p.findtext("m:artifactId", namespaces=NS) == "maven-shade-plugin")
+    # Each dependency embeds its own manifest. The project manifest must be the sole
+    # packaged manifest, without excluding plugin.yml or any application resources.
+    filters = shade.findall("m:configuration/m:filters/m:filter", NS)
+    if len(filters) != 1 or filters[0].findtext("m:artifact", namespaces=NS) != "*:*":
+        raise ValueError("Shade must filter dependency manifests through one scoped filter")
+    excluded = [e.text for e in filters[0].findall("m:excludes/m:exclude", NS)]
+    if excluded != ["META-INF/MANIFEST.MF"]:
+        raise ValueError("Shade exclusions must remove only duplicate dependency manifests")
+
     compiler = next(p for p in root.findall("m:build/m:plugins/m:plugin", NS)
                     if p.findtext("m:artifactId", namespaces=NS) == "maven-compiler-plugin")
     if compiler.findtext("m:configuration/m:release", namespaces=NS) != "${java.version}":
@@ -68,6 +79,22 @@ class MavenBuildContractTest(unittest.TestCase):
             check_build_contract(self.source.replace(
                 "<artifactId>maven-shade-plugin</artifactId><version>3.6.2</version>",
                 "<artifactId>maven-shade-plugin</artifactId><version>3.6.0</version>"))
+
+    def test_dependency_manifest_filter_cannot_be_removed(self):
+        with self.assertRaises(ValueError):
+            check_build_contract(self.source.replace(
+                "<artifact>*:*</artifact>", "<artifact>co.aikar:acf-paper</artifact>"))
+
+    def test_runtime_resources_cannot_be_excluded_with_duplicate_manifests(self):
+        with self.assertRaises(ValueError):
+            check_build_contract(self.source.replace(
+                "<exclude>META-INF/MANIFEST.MF</exclude>",
+                "<exclude>META-INF/MANIFEST.MF</exclude><exclude>plugin.yml</exclude>"))
+
+    def test_shade_manifest_filter_cannot_be_deleted(self):
+        with self.assertRaises(ValueError):
+            check_build_contract(self.source.replace(
+                "<filters>", "<removedFilters>").replace("</filters>", "</removedFilters>"))
 
     def test_reproducible_timestamp_cannot_be_removed(self):
         with self.assertRaises(ValueError):
