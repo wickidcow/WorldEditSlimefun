@@ -51,12 +51,14 @@ jobs:
         run: |
           bash -n scripts/publish_new_release.sh
           python3 -m unittest discover -s scripts -p 'test_publish_new_release.py' -v
+      - name: Verify stable API probe and preserved release floor
+        run: python3 -m unittest discover -s scripts -p 'test_stable_paper_compile.py' -v
       - name: Verify Paper/Purpur 1.21.11 compilation
         run: mvn --batch-mode clean package
       - name: Verify Paper/Purpur 26.2 compilation
         run: mvn --batch-mode -Dpaper.version=26.2.build.111-stable clean package
-      - name: Verify Paper/Purpur 26.3 compilation
-        run: mvn --batch-mode -Dpaper.version=26.3.build.49-alpha clean package
+      - name: Verify Paper/Purpur 26.3 stable compilation
+        run: mvn --batch-mode -Dpaper.version=26.3.build.205-stable clean package
       - name: Build universal release JAR from 1.21.11 baseline
         run: mvn --batch-mode -Dpaper.version=1.21.11-R0.1-SNAPSHOT clean package
       - name: Verify real JUnit deprecation migrations and no test classes in raw JAR
