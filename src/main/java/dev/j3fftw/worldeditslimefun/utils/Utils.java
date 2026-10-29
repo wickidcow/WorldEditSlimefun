@@ -28,13 +28,24 @@ public class Utils {
         }
 
         for (Material material : Material.values()) {
-            if (!material.isEmpty() && !material.isLegacy()) {
+            if (isRegistrableMaterial(material)) {
                 MATERIALS.put(material.name(), material);
             }
         }
 
         SLIMEFUN_BLOCKS.sort(Comparator.naturalOrder());
         SLIMEFUN_ITEMS.sort(Comparator.naturalOrder());
+    }
+
+    // Material#isEmpty() was deprecated in 1.21.5 in favor of the equivalent isAir().
+    static boolean isRegistrableMaterial(Material material) {
+        return isRegistrableMaterial(material.isAir(), material.isLegacy());
+    }
+
+    // Pure boolean decision boundary permits testing across API vintages;
+    // CI also inspects bytecode to ensure the public Material API uses isAir().
+    static boolean isRegistrableMaterial(boolean isAir, boolean isLegacy) {
+        return !isAir && !isLegacy;
     }
 
     @Nonnull
