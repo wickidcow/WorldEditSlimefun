@@ -7,6 +7,16 @@ on:
   pull_request:
     branches: ['**']
   workflow_dispatch:
+    inputs:
+      publish_new_release:
+        description: 'Explicitly publish a DISTINCT version only after coordinated validation'
+        required: true
+        type: boolean
+        default: false
+      expected_source_sha:
+        description: 'Reviewed 40-character source SHA (must match the selected tag)'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -36,6 +46,11 @@ jobs:
           grep -Fq '<worldedit.version>7.4.6-SNAPSHOT</worldedit.version>' pom.xml
           grep -Fq '<java.version>21</java.version>' pom.xml
           grep -Fq "api-version: '1.21.11'" src/main/resources/plugin.yml
+      - name: Verify immutable publication guard
+        shell: bash
+        run: |
+          bash -n scripts/publish_new_release.sh
+          python3 -m unittest discover -s scripts -p 'test_publish_new_release.py' -v
       - name: Verify Paper/Purpur 1.21.11 compilation
         run: mvn --batch-mode clean package
       - name: Verify Paper/Purpur 26.2 compilation
@@ -64,28 +79,20 @@ jobs:
           path: ${{ steps.project.outputs.jar }}
           archive: false
           if-no-files-found: error
-      - name: Publish raw JAR to GitHub Release
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || github.ref_name == github.event.repository.default_branch
+      # Tag pushes and normal branch builds are BUILD-ONLY; never edit a past release.
+      # Dispatch this workflow on an already-reviewed tag and supply that tag's
+      # exact source SHA only when the coordinated release gates have passed.
+      - name: Publish a distinct immutable release after explicit authorization
+        if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && inputs.publish_new_release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.project.outputs.version }}
           JAR: ${{ steps.project.outputs.jar }}
+          RELEASE_CONFIRMED: ${{ inputs.publish_new_release }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then TAG="$GITHUB_REF_NAME"; else TAG="v${VERSION}"; fi
-          TITLE="SFWorldEdit ${VERSION}"
-          NOTES="Compatibility release for Minecraft/Purpur 1.21.11 through 26.3. Requires WorldEdit or FAWE and compiles against the WorldEdit 7.4.6 snapshot API. Keeps the existing schematic recovery improvements while emitting Java 21 bytecode and compile-checking 1.21.11, 26.2, and 26.3."
           RELEASE_JAR="target/SF_SFWorldEdit${VERSION}_1.21.11-26.3.jar"
           cp "$JAR" "$RELEASE_JAR"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            for OLD in "SF_SFLWorldEdit_${VERSION}.jar" "SF_SFWorldEdit${VERSION}_.1.21.11-26.2.jar" "SF_SFWorldEdit${VERSION}_.1.21.11-26.3.jar"; do
-              if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fxq "$OLD"; then
-                gh release delete-asset "$TAG" "$OLD" -y
-              fi
-            done
-            gh release upload "$TAG" "$RELEASE_JAR" --clobber
-            gh release edit "$TAG" --title "$TITLE" --notes "$NOTES"
-          else
-            gh release create "$TAG" "$RELEASE_JAR" --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES"
-          fi
+          JAR="$RELEASE_JAR" bash scripts/publish_new_release.sh
