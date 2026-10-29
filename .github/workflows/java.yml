@@ -53,6 +53,8 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_publish_new_release.py' -v
       - name: Verify stable API probe and preserved release floor
         run: python3 -m unittest discover -s scripts -p 'test_stable_paper_compile.py' -v
+      - name: Verify Maven Java 21 compiler and shaded package contract
+        run: python3 -m unittest discover -s scripts -p 'test_maven_build_contract.py' -v
       - name: Verify Paper/Purpur 1.21.11 compilation
         run: mvn --batch-mode clean package
       - name: Verify Paper/Purpur 26.2 compilation
@@ -82,6 +84,17 @@ jobs:
           with ZipFile(jar) as z:
               if any(n.startswith(('org/junit/', 'org/opentest4j/', 'org/apiguardian/')) or '/test/' in n for n in z.namelist()):
                   raise SystemExit('Test-only classes leaked into the distribution')
+              classes = [n for n in z.namelist() if n.endswith('.class')]
+              if not classes:
+                  raise SystemExit('Distribution has no Java classes')
+              for name in classes:
+                  header = z.read(name)[:8]
+                  if len(header) != 8 or header[:4] != bytes.fromhex('cafebabe'):
+                      raise SystemExit(f'Invalid class header: {name}')
+                  major = int.from_bytes(header[6:8], 'big')
+                  if major > 65:
+                      raise SystemExit(f'Class exceeds Java 21 bytecode: {name}, major {major}')
+              print(f'All {len(classes)} packaged classes target Java 21 or older')
           actual_api = subprocess.check_output(['javap', '-c', '-classpath', str(jar),
               'dev.j3fftw.worldeditslimefun.utils.Utils'], text=True)
           if 'org/bukkit/Material.isAir:()Z' not in actual_api or 'org/bukkit/Material.isEmpty:()Z' in actual_api:
