@@ -70,7 +70,7 @@ jobs:
           import subprocess
           from zipfile import ZipFile
           reports = list(Path('target/surefire-reports').glob('TEST-*.xml'))
-          expected = {'WandListenerMessageTest': 1, 'MaterialRegistryFilterTest': 2}
+          expected = {'WandListenerMessageTest': 1, 'MaterialRegistryFilterTest': 2, 'SelectionVolumeTest': 4}
           for name, minimum in expected.items():
               found = [p for p in reports if p.stem.endswith('.' + name)]
               if len(found) != 1:
