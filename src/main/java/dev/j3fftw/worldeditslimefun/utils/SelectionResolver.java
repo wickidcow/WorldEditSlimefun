@@ -68,10 +68,24 @@ public final class SelectionResolver {
             int maxY,
             int maxZ) {
 
+        /**
+         * Inclusive block count, saturated if a malformed or extreme selection
+         * exceeds the range of a long. Never let arithmetic overflow bypass
+         * the synchronous operation's max-selection-blocks safety limit.
+         */
         public long volume() {
-            return (long) (maxX - minX + 1)
-                    * (long) (maxY - minY + 1)
-                    * (long) (maxZ - minZ + 1);
+            long width = (long) maxX - minX + 1L;
+            long height = (long) maxY - minY + 1L;
+            long depth = (long) maxZ - minZ + 1L;
+            if (width <= 0 || height <= 0 || depth <= 0) {
+                return Long.MAX_VALUE;
+            }
+
+            try {
+                return Math.multiplyExact(Math.multiplyExact(width, height), depth);
+            } catch (ArithmeticException overflow) {
+                return Long.MAX_VALUE;
+            }
         }
     }
 }
