@@ -32,10 +32,18 @@
                 <groupId>org.apache.maven.plugins</groupId><artifactId>maven-shade-plugin</artifactId><version>3.6.2</version>
                 <configuration>
                     <dependencyReducedPomLocation>${project.build.directory}/dependency-reduced-pom.xml</dependencyReducedPomLocation>
-                    <!-- Dependency manifests are duplicates; Shade writes the canonical project manifest. -->
+                    <!-- Explicit dependency-only filters; the project's own manifest must survive. -->
                     <filters>
                         <filter>
-                            <artifact>*:*</artifact>
+                            <artifact>co.aikar:acf-paper</artifact>
+                            <excludes><exclude>META-INF/MANIFEST.MF</exclude></excludes>
+                        </filter>
+                        <filter>
+                            <artifact>org.bstats:bstats-base</artifact>
+                            <excludes><exclude>META-INF/MANIFEST.MF</exclude></excludes>
+                        </filter>
+                        <filter>
+                            <artifact>org.bstats:bstats-bukkit</artifact>
                             <excludes><exclude>META-INF/MANIFEST.MF</exclude></excludes>
                         </filter>
                     </filters>
