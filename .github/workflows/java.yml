@@ -82,6 +82,22 @@ jobs:
                   raise SystemExit(f'JUnit regression did not execute successfully: {name}')
           jar = Path('target/SF_SFWorldEdit1.0.6_(1.21.11-26.3).jar')
           with ZipFile(jar) as z:
+              # The dependency filter must not remove the canonical project manifest,
+              # plugin metadata or relocated command/metrics libraries from the raw JAR.
+              names = z.namelist()
+              if names.count('META-INF/MANIFEST.MF') != 1:
+                  raise SystemExit('Canonical project manifest must occur exactly once')
+              if b'Manifest-Version:' not in z.read('META-INF/MANIFEST.MF'):
+                  raise SystemExit('Project manifest does not contain a standard version')
+              if names.count('plugin.yml') != 1 or b'api-version:' not in z.read('plugin.yml'):
+                  raise SystemExit('Shaded distribution lost its original plugin descriptor')
+              if not any(n.startswith('dev/j3fftw/worldeditslimefun/acf/') and n.endswith('.class')
+                         for n in names):
+                  raise SystemExit('Shaded distribution lost relocated ACF command classes')
+              if not any(n.startswith('dev/j3fftw/worldeditslimefun/bstats/') and n.endswith('.class')
+                         for n in names):
+                  raise SystemExit('Shaded distribution lost relocated bStats classes')
+              print('Canonical manifest, plugin.yml, ACF and bStats packaging verified')
               if any(n.startswith(('org/junit/', 'org/opentest4j/', 'org/apiguardian/')) or '/test/' in n for n in z.namelist()):
                   raise SystemExit('Test-only classes leaked into the distribution')
               classes = [n for n in z.namelist() if n.endswith('.class')]
