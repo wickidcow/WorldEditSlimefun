@@ -65,6 +65,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           from xml.etree import ElementTree as ET
+          import subprocess
           from zipfile import ZipFile
           reports = list(Path('target/surefire-reports').glob('TEST-*.xml'))
           expected = {'WandListenerMessageTest': 1, 'MaterialRegistryFilterTest': 2}
@@ -79,7 +80,11 @@ jobs:
           with ZipFile(jar) as z:
               if any(n.startswith(('org/junit/', 'org/opentest4j/', 'org/apiguardian/')) or '/test/' in n for n in z.namelist()):
                   raise SystemExit('Test-only classes leaked into the distribution')
-          print('Real JUnit warnings-migration cases passed, test dependencies excluded from raw JAR')
+          actual_api = subprocess.check_output(['javap', '-c', '-classpath', str(jar),
+              'dev.j3fftw.worldeditslimefun.utils.Utils'], text=True)
+          if 'org/bukkit/Material.isAir:()Z' not in actual_api or 'org/bukkit/Material.isEmpty:()Z' in actual_api:
+              raise SystemExit('Compiled material registry must use supported isAir, not deprecated isEmpty')
+          print('JUnit behavior cases and actual Material.isAir bytecode passed; test classes excluded')
           PY
       - name: Resolve and verify build output
         id: project

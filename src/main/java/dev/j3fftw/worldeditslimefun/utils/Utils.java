@@ -39,7 +39,13 @@ public class Utils {
 
     // Material#isEmpty() was deprecated in 1.21.5 in favor of the equivalent isAir().
     static boolean isRegistrableMaterial(Material material) {
-        return !material.isAir() && !material.isLegacy();
+        return isRegistrableMaterial(material.isAir(), material.isLegacy());
+    }
+
+    // Pure boolean decision boundary permits testing across API vintages;
+    // CI also inspects bytecode to ensure the public Material API uses isAir().
+    static boolean isRegistrableMaterial(boolean isAir, boolean isLegacy) {
+        return !isAir && !isLegacy;
     }
 
     @Nonnull
