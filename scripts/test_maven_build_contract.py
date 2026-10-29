@@ -31,6 +31,9 @@ def check_build_contract(source: str) -> None:
 
     if root.findtext("m:properties/m:java.version", namespaces=NS) != "21":
         raise ValueError("The distributable must remain Java 21")
+    # Maven JAR and Shade use this fixed timestamp for reproducible ZIP entries.
+    if root.findtext("m:properties/m:project.build.outputTimestamp", namespaces=NS) != "2026-10-29T00:00:00Z":
+        raise ValueError("The canonical build must have a fixed checked-in output timestamp")
     compiler = next(p for p in root.findall("m:build/m:plugins/m:plugin", NS)
                     if p.findtext("m:artifactId", namespaces=NS) == "maven-compiler-plugin")
     if compiler.findtext("m:configuration/m:release", namespaces=NS) != "${java.version}":
@@ -65,6 +68,16 @@ class MavenBuildContractTest(unittest.TestCase):
             check_build_contract(self.source.replace(
                 "<artifactId>maven-shade-plugin</artifactId><version>3.6.2</version>",
                 "<artifactId>maven-shade-plugin</artifactId><version>3.6.0</version>"))
+
+    def test_reproducible_timestamp_cannot_be_removed(self):
+        with self.assertRaises(ValueError):
+            check_build_contract(self.source.replace(
+                "<project.build.outputTimestamp>2026-10-29T00:00:00Z</project.build.outputTimestamp>", ""))
+
+    def test_reproducible_timestamp_cannot_be_dynamic(self):
+        with self.assertRaises(ValueError):
+            check_build_contract(self.source.replace(
+                "2026-10-29T00:00:00Z", "${maven.build.timestamp}"))
 
     def test_java_floor_is_rejected_if_changed(self):
         with self.assertRaises(ValueError):
