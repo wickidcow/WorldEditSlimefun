@@ -36,14 +36,16 @@ def check_build_contract(source: str) -> None:
         raise ValueError("The canonical build must have a fixed checked-in output timestamp")
     shade = next(p for p in root.findall("m:build/m:plugins/m:plugin", NS)
                  if p.findtext("m:artifactId", namespaces=NS) == "maven-shade-plugin")
-    # Each dependency embeds its own manifest. The project manifest must be the sole
-    # packaged manifest, without excluding plugin.yml or any application resources.
+    # Shade's wildcard *:* also matches the project's own artifact and strips its
+    # canonical manifest. Restrict exclusions to known bundled dependencies only.
     filters = shade.findall("m:configuration/m:filters/m:filter", NS)
-    if len(filters) != 1 or filters[0].findtext("m:artifact", namespaces=NS) != "*:*":
-        raise ValueError("Shade must filter dependency manifests through one scoped filter")
-    excluded = [e.text for e in filters[0].findall("m:excludes/m:exclude", NS)]
-    if excluded != ["META-INF/MANIFEST.MF"]:
-        raise ValueError("Shade exclusions must remove only duplicate dependency manifests")
+    filtered_artifacts = [f.findtext("m:artifact", namespaces=NS) for f in filters]
+    if filtered_artifacts != ["co.aikar:acf-paper", "org.bstats:bstats-base", "org.bstats:bstats-bukkit"]:
+        raise ValueError("Shade must filter only the three known dependency manifests")
+    for entry in filters:
+        excluded = [e.text for e in entry.findall("m:excludes/m:exclude", NS)]
+        if excluded != ["META-INF/MANIFEST.MF"]:
+            raise ValueError("Shade exclusions must remove only duplicate dependency manifests")
 
     compiler = next(p for p in root.findall("m:build/m:plugins/m:plugin", NS)
                     if p.findtext("m:artifactId", namespaces=NS) == "maven-compiler-plugin")
@@ -80,10 +82,15 @@ class MavenBuildContractTest(unittest.TestCase):
                 "<artifactId>maven-shade-plugin</artifactId><version>3.6.2</version>",
                 "<artifactId>maven-shade-plugin</artifactId><version>3.6.0</version>"))
 
-    def test_dependency_manifest_filter_cannot_be_removed(self):
+    def test_broad_filter_would_strip_the_project_manifest_and_is_rejected(self):
         with self.assertRaises(ValueError):
             check_build_contract(self.source.replace(
-                "<artifact>*:*</artifact>", "<artifact>co.aikar:acf-paper</artifact>"))
+                "<artifact>co.aikar:acf-paper</artifact>", "<artifact>*:*</artifact>"))
+
+    def test_required_dependency_manifest_filter_cannot_be_removed(self):
+        with self.assertRaises(ValueError):
+            check_build_contract(self.source.replace(
+                "<artifact>org.bstats:bstats-bukkit</artifact>", "<artifact>org.bstats:other</artifact>"))
 
     def test_runtime_resources_cannot_be_excluded_with_duplicate_manifests(self):
         with self.assertRaises(ValueError):
