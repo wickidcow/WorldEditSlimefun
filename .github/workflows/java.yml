@@ -117,6 +117,13 @@ jobs:
               raise SystemExit('Compiled material registry must use supported isAir, not deprecated isEmpty')
           print('JUnit behavior cases and actual Material.isAir bytecode passed; test classes excluded')
           PY
+      - name: Reject preview, corrupt and newer Java bytecode in complete shaded JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_verify_java21_jar.py' -v
+          python3 -O -m unittest discover -s scripts -p 'test_verify_java21_jar.py' -v
+          python3 scripts/verify_java21_jar.py 'target/SF_SFWorldEdit1.0.6_(1.21.11-26.3).jar'
       - name: Verify repeatable exact-source raw JAR SHA-256
         shell: bash
         run: |
