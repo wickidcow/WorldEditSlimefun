@@ -4,10 +4,23 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.bukkit.Material;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockbukkit.mockbukkit.MockBukkit;
 
 /** The supported Material#isAir() must exclude the same three air constants. */
 class MaterialRegistryFilterTest {
+    @BeforeAll
+    static void startRegistry() {
+        // Paper Material.isAir now consults RegistryAccess; a naked API jar is insufficient.
+        MockBukkit.mock();
+    }
+
+    @AfterAll
+    static void stopRegistry() {
+        MockBukkit.unmock();
+    }
     @Test
     void airVariantsAreExcludedWithoutUsingDeprecatedMaterialIsEmpty() {
         assertFalse(Utils.isRegistrableMaterial(Material.AIR));
