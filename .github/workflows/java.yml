@@ -101,6 +101,23 @@ jobs:
               raise SystemExit('Compiled material registry must use supported isAir, not deprecated isEmpty')
           print('JUnit behavior cases and actual Material.isAir bytecode passed; test classes excluded')
           PY
+      - name: Verify repeatable exact-source raw JAR SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAR='target/SF_SFWorldEdit1.0.6_(1.21.11-26.3).jar'
+          test -s "$JAR"
+          FIRST="$(sha256sum "$JAR" | cut -d ' ' -f 1)"
+          # The second clean build must cross the ZIP timestamp granularity boundary.
+          sleep 2
+          mvn --batch-mode -Dpaper.version=1.21.11-R0.1-SNAPSHOT clean package
+          test -s "$JAR"
+          SECOND="$(sha256sum "$JAR" | cut -d ' ' -f 1)"
+          printf 'First raw JAR: %s\nSecond raw JAR: %s\n' "$FIRST" "$SECOND"
+          if [[ "$FIRST" != "$SECOND" ]]; then
+            echo "::error::Raw JAR is not byte-reproducible across separate clean builds"
+            exit 1
+          fi
       - name: Retain exact-head JUnit regression results
         if: always()
         uses: actions/upload-artifact@v7
