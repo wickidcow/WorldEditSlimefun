@@ -14,6 +14,8 @@
 
     <properties>
         <java.version>21</java.version>
+        <!-- A fixed source-controlled timestamp ensures byte-identical Java 21 shaded JARs. -->
+        <project.build.outputTimestamp>2026-10-29T00:00:00Z</project.build.outputTimestamp>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>
         <worldedit.version>7.4.6-SNAPSHOT</worldedit.version>
