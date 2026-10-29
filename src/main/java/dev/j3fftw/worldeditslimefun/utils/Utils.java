@@ -28,13 +28,18 @@ public class Utils {
         }
 
         for (Material material : Material.values()) {
-            if (!material.isEmpty() && !material.isLegacy()) {
+            if (isRegistrableMaterial(material)) {
                 MATERIALS.put(material.name(), material);
             }
         }
 
         SLIMEFUN_BLOCKS.sort(Comparator.naturalOrder());
         SLIMEFUN_ITEMS.sort(Comparator.naturalOrder());
+    }
+
+    // Material#isEmpty() was deprecated in 1.21.5 in favor of the equivalent isAir().
+    static boolean isRegistrableMaterial(Material material) {
+        return !material.isAir() && !material.isLegacy();
     }
 
     @Nonnull

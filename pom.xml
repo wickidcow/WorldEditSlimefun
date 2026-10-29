@@ -24,6 +24,7 @@
         <finalName>SF_SFWorldEdit${project.version}_(1.21.11-26.3)</finalName>
         <sourceDirectory>${basedir}/src/main/java</sourceDirectory>
         <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.6.1</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version><configuration><release>${java.version}</release><parameters>true</parameters><showDeprecation>true</showDeprecation></configuration></plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId><artifactId>maven-shade-plugin</artifactId><version>3.6.0</version>
@@ -56,5 +57,7 @@
         <dependency><groupId>co.aikar</groupId><artifactId>acf-paper</artifactId><version>0.5.1-SNAPSHOT</version></dependency>
         <dependency><groupId>org.bstats</groupId><artifactId>bstats-bukkit</artifactId><version>3.2.1</version></dependency>
         <dependency><groupId>com.google.code.findbugs</groupId><artifactId>jsr305</artifactId><version>3.0.2</version><scope>provided</scope></dependency>
+        <!-- Test-only: never shipped inside the shaded plugin JAR. -->
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.12.2</version><scope>test</scope></dependency>
     </dependencies>
 </project>

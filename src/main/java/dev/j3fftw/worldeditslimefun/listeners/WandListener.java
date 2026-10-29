@@ -5,7 +5,8 @@ import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem;
 import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
 import io.github.thebusybiscuit.slimefun4.libraries.dough.blocks.BlockPosition;
 import io.github.thebusybiscuit.slimefun4.libraries.dough.protection.Interaction;
-import org.bukkit.ChatColor;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -15,6 +16,11 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
 
 public class WandListener implements Listener {
+
+    // The visible message is unchanged; use the supported Adventure API.
+    static Component permissionDeniedMessage() {
+        return Component.text("You don't have permission!", NamedTextColor.RED);
+    }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerInteract(PlayerInteractEvent event) {
@@ -33,7 +39,7 @@ public class WandListener implements Listener {
                 || !Slimefun.getProtectionManager().hasPermission(player, block, Interaction.BREAK_BLOCK)
                 || !Slimefun.getProtectionManager().hasPermission(player, block, Interaction.INTERACT_BLOCK)
                 || !player.hasPermission("wesf.admin")) {
-            player.sendMessage(ChatColor.RED + "You don't have permission!");
+            player.sendMessage(permissionDeniedMessage());
             return;
         }
 

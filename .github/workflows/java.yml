@@ -59,6 +59,28 @@ jobs:
         run: mvn --batch-mode -Dpaper.version=26.3.build.49-alpha clean package
       - name: Build universal release JAR from 1.21.11 baseline
         run: mvn --batch-mode -Dpaper.version=1.21.11-R0.1-SNAPSHOT clean package
+      - name: Verify real JUnit deprecation migrations and no test classes in raw JAR
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree as ET
+          from zipfile import ZipFile
+          reports = list(Path('target/surefire-reports').glob('TEST-*.xml'))
+          expected = {'WandListenerMessageTest': 1, 'MaterialRegistryFilterTest': 2}
+          for name, minimum in expected.items():
+              found = [p for p in reports if p.stem.endswith('.' + name)]
+              if len(found) != 1:
+                  raise SystemExit(f'Missing or duplicated test report: {name}')
+              suite = ET.parse(found[0]).getroot()
+              if int(suite.get('tests', '0')) < minimum or any(int(suite.get(k, '0')) for k in ('failures', 'errors', 'skipped')):
+                  raise SystemExit(f'JUnit regression did not execute successfully: {name}')
+          jar = Path('target/SF_SFWorldEdit1.0.6_(1.21.11-26.3).jar')
+          with ZipFile(jar) as z:
+              if any(n.startswith(('org/junit/', 'org/opentest4j/', 'org/apiguardian/')) or '/test/' in n for n in z.namelist()):
+                  raise SystemExit('Test-only classes leaked into the distribution')
+          print('Real JUnit warnings-migration cases passed, test dependencies excluded from raw JAR')
+          PY
       - name: Resolve and verify build output
         id: project
         shell: bash
