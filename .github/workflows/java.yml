@@ -37,6 +37,20 @@ jobs:
           distribution: temurin
           java-version: '25'
           cache: maven
+
+      - name: Install pinned Apache Maven 3.10.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=3.10.2
+          archive="$RUNNER_TEMP/apache-maven-${version}-bin.tar.gz"
+          relative="maven/maven-3/${version}/binaries/apache-maven-${version}-bin.tar.gz"
+          curl -fsSL --retry 3 "https://downloads.apache.org/$relative" -o "$archive" || curl -fsSL --retry 3 "https://archive.apache.org/dist/$relative" -o "$archive"
+          printf '%s  %s\n' '57d2db6b37e7582119137ade544557bba741b29e62109ef81539a2bdfd6d0e641fdd5d8edb014af1816d0510deac6fac8f347433b3a1aa36316ba85aa77b8119' "$archive" | sha512sum --check --status
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          maven_bin="$RUNNER_TEMP/apache-maven-${version}/bin"
+          "$maven_bin/mvn" --version | grep -F "Apache Maven ${version}"
+          printf '%s\n' "$maven_bin" >> "$GITHUB_PATH"
       - name: Verify compatibility metadata
         shell: bash
         run: |
